@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>deskpal runtime spike</title>
+  <link rel="stylesheet" href="spike.css">
+  <script type="module" src="spike.js"></script>
+</head>
+<body>
+  <main>
+    <h1>deskpal runtime spike</h1>
+    <p>Measures how long a visitor waits for a first answer with transformers.js,
+      and how well each embedding model finds the right doc section. Close other
+      heavy tabs, run it on the laptop you care about, then copy the results.</p>
+    <p class="note">Models download from Hugging Face (250–620 MB each) and are cached
+      in the browser. Use “Clear model cache” to measure a cold first visit.</p>
+
+    <section>
+      <h2>This machine</h2>
+      <pre id="env">Detecting…</pre>
+    </section>
+
+    <section>
+      <h2>Generation</h2>
+      <fieldset>
+        <legend>Models</legend>
+        <div id="gen-models" class="choices"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Devices</legend>
+        <label><input type="checkbox" name="gen-device" value="webgpu" checked> WebGPU</label>
+        <label><input type="checkbox" name="gen-device" value="wasm"> WASM (CPU fallback; slow)</label>
+      </fieldset>
+      <p class="buttons">
+        <button type="button" class="run" id="run-gen">Run generation</button>
+        <button type="button" id="clear-cache">Clear model cache</button>
+      </p>
+      <p class="hint">Each run loads the model, then answers seven questions using the demo docs.
+        The last two are not in the docs: a good model says it doesn't know.</p>
+      <pre id="stream" class="stream" aria-live="off"></pre>
+      <div id="gen-results" class="results"></div>
+      <div id="answers"></div>
+    </section>
+
+    <section>
+      <h2>Embeddings</h2>
+      <fieldset>
+        <legend>Models</legend>
+        <div id="embed-models" class="choices"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Devices</legend>
+        <label><input type="checkbox" name="embed-device" value="wasm" checked> WASM</label>
+        <label><input type="checkbox" name="embed-device" value="webgpu"> WebGPU</label>
+      </fieldset>
+      <p class="buttons"><button type="button" class="run" id="run-embed">Run embeddings</button></p>
+      <p class="hint">Ranks the demo docs for 13 paraphrased questions with known answers.
+        Node parity compares against vectors from the CLI's code path
+        (<code>npm run spike:vectors</code>); 1.0 means identical.</p>
+      <div id="embed-results" class="results"></div>
+    </section>
+
+    <section>
+      <h2>Problems</h2>
+      <pre id="problems">None so far.</pre>
+    </section>
+
+    <section>
+      <h2>Results</h2>
+      <p class="buttons">
+        <button type="button" id="copy">Copy JSON</button>
+        <button type="button" id="download">Download JSON</button>
+      </p>
+      <textarea id="json" readonly rows="10" aria-label="Results as JSON"></textarea>
+    </section>
+    <p id="status" class="status" role="status">Loading…</p>
+  </main>
+</body>
+</html>
