@@ -1,14 +1,18 @@
-export type AdapterName = 'browser' | 'openai-compatible' | 'none';
+import type { GenerateFn } from '../adapters/custom.ts';
+
+export type AdapterName = 'browser' | 'openai-compatible' | 'anthropic' | 'custom' | 'none';
 export type Corner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
 export interface DeskpalConfig {
   /** URL of the prebuilt `deskpal-index.json`. */
   index?: string;
   adapter: AdapterName;
-  /** openai-compatible: base URL such as `http://localhost:11434/v1`. */
+  /** openai-compatible: base URL such as `http://localhost:11434/v1`. anthropic: the site's proxy for `/v1/messages`. */
   endpoint?: string;
-  /** openai-compatible: model name sent to the endpoint. */
+  /** openai-compatible and anthropic: model name sent to the endpoint. */
   model?: string;
+  /** custom: writes the answer (SPEC §4). init() only, since it is a function. */
+  generate?: GenerateFn;
   /** openai-compatible: bearer token. Visible to visitors; use only with a proxy or local server. */
   apiKey?: string;
   /** Base URL for self-hosted model files (`{modelHost}/{model id}/...`). Hugging Face when unset. */
@@ -59,7 +63,7 @@ export const defaults: DeskpalConfig = {
   siteKey: '',
 };
 
-const ADAPTERS: AdapterName[] = ['browser', 'openai-compatible', 'none'];
+const ADAPTERS: AdapterName[] = ['browser', 'openai-compatible', 'anthropic', 'custom', 'none'];
 const CORNERS: Corner[] = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
 const STRING_KEYS = ['index', 'endpoint', 'model', 'apiKey', 'modelHost', 'runtimeUrl', 'skin', 'name', 'greeting', 'tip', 'siteKey'] as const;
 const NUMBER_KEYS = ['tipDelay', 'scale', 'topK', 'minScore', 'minAnswerScore', 'sureAnswerScore'] as const;
@@ -86,6 +90,9 @@ export function sanitize(input: Record<string, unknown>): Partial<DeskpalConfig>
     } else if (key === 'voice') {
       if (typeof raw === 'object' && !Array.isArray(raw)) out.voice = raw as Record<string, string | string[]>;
       else console.warn('deskpal: voice must be an object of line sets');
+    } else if (key === 'generate') {
+      if (typeof raw === 'function') out.generate = raw as GenerateFn;
+      else console.warn('deskpal: generate must be a function, passed to init()');
     } else if (key === 'adapter') {
       if (ADAPTERS.includes(raw as AdapterName)) out.adapter = raw as AdapterName;
       else console.warn(`deskpal: unknown adapter "${String(raw)}"`);

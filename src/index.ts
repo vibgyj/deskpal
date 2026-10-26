@@ -3,6 +3,8 @@ import { fromDataset, fromJson, resolveConfig, type DeskpalConfig } from './core
 
 export type { DeskpalConfig } from './core/config.ts';
 export type { ModelAdapter } from './adapters/types.ts';
+export type { GenerateFn } from './adapters/custom.ts';
+export type { Prompt, Source } from './rag/prompt.ts';
 export type { Embedder, DeskpalIndex } from './rag/types.ts';
 export type { SkinManifest, AnimationDef } from './sprite/manifest.ts';
 export { REQUIRED_ANIMATIONS, validateManifest } from './sprite/manifest.ts';

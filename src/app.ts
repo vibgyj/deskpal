@@ -537,22 +537,26 @@ export class Deskpal {
   }
 
   private async answerGenerative(question: string, hits: Hit[], searcher: Searcher, signal: AbortSignal): Promise<void> {
-    const msg = this.addMessage('bot', '');
-    const text = msg.querySelector('.text')!;
+    // The bubble appears with the first words, so the thinking line shows until then.
+    let msg: HTMLElement | null = null;
     let full = '';
     try {
       await this.ensureGenerative(signal);
       this.dom.log.setAttribute('aria-busy', 'true');
       for await (const piece of this.generative!.generate(buildPrompt(question, hits), signal)) {
-        if (!full) void this.dispatch('answer-start');
+        if (!msg) {
+          msg = this.addMessage('bot', '');
+          void this.dispatch('answer-start');
+        }
         full += piece;
-        text.textContent = full;
+        msg.querySelector('.text')!.textContent = full;
         this.scrollLog();
       }
     } catch (err) {
       if (signal.aborted) return;
+      // Includes a refusal: a partial answer is discarded, never shown as complete.
       console.error(err);
-      msg.remove();
+      msg?.remove();
       this.addMessage('note', this.speaker.say('error'));
       this.renderSnippets(hits);
       await this.dispatch('error');
@@ -562,8 +566,8 @@ export class Deskpal {
       this.dom.progress.hidden = true;
     }
 
-    if (!full.trim() || DONT_KNOW.test(full)) {
-      msg.remove();
+    if (!msg || !full.trim() || DONT_KNOW.test(full)) {
+      msg?.remove();
       return this.dontKnow(searcher, question, hits);
     }
     const cited = [...full.matchAll(/\[(\d+)\]/g)].map((m) => hits[Number(m[1]) - 1]).filter((h): h is Hit => !!h);

@@ -11,8 +11,14 @@ Add `data-auto="false"` to the script tag to stop it booting on its own.
 ## Options
 
 - `index`: URL of the search index built by `deskpal build-index`.
-- `adapter`: which model writes answers: `browser` (default), `openai-compatible` or `none`.
-- `endpoint`, `model`, `apiKey`: settings for the `openai-compatible` adapter.
+- `adapter`: how answers are made: `browser` (default, quoted from your docs on
+  the visitor's device), `openai-compatible`, `anthropic`, `custom` or `none`.
+  See Models.
+- `endpoint`, `model`: where the `openai-compatible` or `anthropic` adapter
+  sends questions, and which model it asks for.
+- `apiKey`: a bearer token for `openai-compatible`. Visitors can read it, so
+  use it only with a local server or your own proxy.
+- `generate`: the function the `custom` adapter calls (`init()` only).
 - `modelHost`: base URL for self-hosted model files, laid out as
   `{modelHost}/{model id}/...`. Hugging Face when unset.
 - `runtimeUrl`: URL of `deskpal-runtime.js`. By default it is found next to the

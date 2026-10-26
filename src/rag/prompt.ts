@@ -5,8 +5,19 @@ export interface Message {
   content: string;
 }
 
+/** A matching doc section, as writers receive it. */
+export interface Source {
+  title: string;
+  url: string;
+  text: string;
+}
+
 export interface Prompt {
+  /** The system message (instructions and numbered sources), then the question. */
   messages: Message[];
+  /** The raw question and sections, for writers that build their own prompt. */
+  question: string;
+  sources: Source[];
 }
 
 export const SYSTEM_PROMPT = [
@@ -18,16 +29,14 @@ export const SYSTEM_PROMPT = [
 ].join(' ');
 
 export function buildPrompt(question: string, hits: Hit[], maxSourceChars = 1200): Prompt {
-  const sources = hits
-    .map((h, i) => {
-      const heading = [h.chunk.title, ...h.chunk.path.slice(1)].join(' > ');
-      return `[${i + 1}] ${heading}\n${h.chunk.text.slice(0, maxSourceChars)}`;
-    })
-    .join('\n\n');
+  const sources = hits.map((h) => ({ title: [h.chunk.title, ...h.chunk.path.slice(1)].join(' > '), url: h.chunk.url, text: h.chunk.text.slice(0, maxSourceChars) }));
+  const numbered = sources.map((s, i) => `[${i + 1}] ${s.title}\n${s.text}`).join('\n\n');
   return {
     messages: [
-      { role: 'system', content: `${SYSTEM_PROMPT}\n\nSources:\n\n${sources}` },
+      { role: 'system', content: `${SYSTEM_PROMPT}\n\nSources:\n\n${numbered}` },
       { role: 'user', content: question },
     ],
+    question,
+    sources,
   };
 }

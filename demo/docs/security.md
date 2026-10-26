@@ -12,8 +12,8 @@ styles through constructed stylesheets inside a shadow root.
 - Model files come from Hugging Face unless you host them yourself, so allow
   `https://huggingface.co https://*.huggingface.co https://*.hf.co` in
   `connect-src`, or set `modelHost` to your own origin.
-- An `openai-compatible` endpoint on another origin needs that origin in
-  `connect-src`.
+- An `openai-compatible` or `anthropic` endpoint on another origin needs that
+  origin in `connect-src`. Proxies on your own origin are covered by `'self'`.
 - The built-in character is an inline image, so allow `img-src data:`, or host
   the default skin yourself and set `skin`.
 

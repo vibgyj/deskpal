@@ -22,8 +22,9 @@ talk, and expressions that follow how sure it is (SPEC §7). On the first real
 question it asks the visitor to download about 110 MB of model files, once,
 which then run in a Web Worker. Say no and it shows the matching doc sections
 instead.
-`adapter: "openai-compatible"` uses a local or cloud model to write answers
-instead (see `demo/docs/models.md`).
+To have a model write answers instead, use `adapter: "openai-compatible"` (Ollama,
+llama.cpp, most clouds), `"anthropic"` (Claude, through your proxy) or
+`"custom"` (your own function); see `demo/docs/models.md`.
 
 ## Development
 
@@ -62,15 +63,15 @@ shadow-DOM bubble, the behaviour state machine, drag/hide/remember, the tip,
 sounds and reduced motion. The persona: voice lines, small talk, confidence and
 follow-ups. Answers: hybrid retrieval (bge-small plus keywords) with a
 relevance cutoff, extractive answers in a Web Worker, plus the
-`openai-compatible` and `none` adapters. `build-index` for Markdown and HTML,
+`openai-compatible`, `anthropic`, `custom` and `none` adapters. `build-index` for Markdown and HTML,
 with embeddings.
 
 Open (SPEC §4, §11):
 
 1. **Mascot**: `skins/default` is a placeholder blob.
 2. **Multilingual answers**: the extractive model is English only.
-3. **More writers**: `anthropic`, `gemini`, `custom` and an experimental
-   `browser-generative`, with fallback to extractive answers.
+3. **More writers**: `gemini` and an experimental `browser-generative`, and
+   falling back to extractive answers when a writer fails.
 4. **Built-in browser models**: whether Chrome's Prompt API can be a writer.
 
 ## License

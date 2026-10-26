@@ -83,9 +83,10 @@ change it before changing behaviour.
 | 1. **Default** | most browsers (WASM, ~110 MB once) | a quote from the docs, picked by an extractive model |
 | 2. Writer (opt-in by the site owner) | wherever it is configured | a written answer with citations |
 
-A higher tier always falls back to the one below: a writer that errors, times
-out or can't run on the device gives way to tier 1 (if the visitor allowed the
-download) or tier 0. The persona (§7) is the same in every tier.
+A higher tier always falls back to the one below: a writer that errors,
+declines or can't run on the device gives way to tier 0 (falling back to tier
+1 instead, when its models are already loaded, is planned). The persona (§7)
+is the same in every tier.
 
 ```ts
 type ModelAdapter = ExtractiveAdapter | GenerativeAdapter;
@@ -148,11 +149,18 @@ supported:
 - **`openai-compatible`** (built): any `/v1/chat/completions` endpoint, local
   (Ollama, llama.cpp server, LM Studio, vLLM) or hosted (OpenRouter, Groq, and
   providers' own OpenAI-compatible endpoints). Streams.
-- **`anthropic`** (planned): the Messages API, streaming.
+- **`anthropic`** (built): the Claude Messages API (`anthropic-version:
+  2026-10-21`), streamed, through the site's proxy. Default model
+  `claude-opus-5-5` at `effort: low` (answers are short and grounded), with
+  server-side refusal fallback (`fallbacks: "default"`) on the models that
+  support it. Thinking deltas are skipped; a `refusal` stop reason or stream
+  error discards the partial answer. Plain `fetch`, not Anthropic's SDK, to
+  keep zero runtime dependencies (§1).
 - **`gemini`** (planned): the Gemini API, streaming.
-- **`custom`** (planned): the site passes `generate(prompt, signal)`, returning
-  an `AsyncIterable<string>`, to `init()`. This covers any other API and the
-  site's own backend and auth.
+- **`custom`** (built): the site passes `generate(prompt, signal)` to `init()`,
+  returning text, a promise of text or an `AsyncIterable<string>`. The prompt
+  carries the chat messages plus the raw question and sources. This covers any
+  other API and the site's own backend and auth.
 - **`browser-generative`** (experimental, planned): a generative model in the
   browser on WebGPU. Candidate: Gemma 3 1B, the only model of 1B or more that
   loaded on a phone in testing (§11.5). Offered only after checking the
