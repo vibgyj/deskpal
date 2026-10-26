@@ -27,7 +27,9 @@ export type BehaviourEvent =
   | 'download'
   | 'answer-start'
   | 'answer-cited'
+  | 'answer-unsure' // a low-confidence answer
   | 'answer-plain'
+  | 'chat' // a small-talk reply; the widget picks the expression
   | 'no-answer'
   | 'error'
   | 'drag-start'
@@ -70,6 +72,7 @@ export const ANNOUNCE: Partial<Record<string, string>> = {
   thinking: 'Thinking…',
   download: 'Loading the language model…',
   sorry: 'No answer found in the docs.',
+  unsure: 'Not sure about this answer.',
   confused: 'Something went wrong.',
   'wave-goodbye': 'Assistant hidden.',
 };
@@ -107,7 +110,10 @@ export function step(s: State, event: BehaviourEvent): Step {
       return to('talking');
     case 'answer-cited':
       return to(resting, 'pointing');
+    case 'answer-unsure':
+      return to(resting, 'unsure');
     case 'answer-plain':
+    case 'chat':
       return to(resting, 'happy');
     case 'no-answer':
       return to(resting, 'sorry');

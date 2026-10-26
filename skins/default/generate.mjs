@@ -84,6 +84,8 @@ const extras = {
   armWave: (n) => `<line x1="25" y1="17" x2="${n ? 30 : 28}" y2="${n ? 9 : 8}" stroke="${INK}" stroke-width="1.5"/>`,
   armPoint: (n) => `<line x1="25" y1="17" x2="${29 + n}" y2="${6 - n}" stroke="${INK}" stroke-width="1.5"/><rect x="${29 + n}" y="${4 - n}" width="2" height="2" fill="${INK}"/>`,
   arrow: (n) => `<g fill="${ACCENT}"><rect x="27" y="${1 + n}" width="2" height="4"/><polygon points="25,${5 + n} 31,${5 + n} 28,${8 + n}"/></g>`,
+  blush: (n) => [9, 23].map((x) => `<ellipse cx="${x}" cy="${22 + n * 0.5}" rx="2.5" ry="1.2" fill="${CHEEK}" opacity="0.85"/>`).join(''),
+  haha: (n) => `<g fill="${ACCENT}"><rect x="${24 + n}" y="${4 - n}" width="1" height="3"/><rect x="${26 + n}" y="${4 - n}" width="1" height="3"/><rect x="${24 + n}" y="${5 - n}" width="3" height="1"/></g>`,
   bar: (n) => `<rect x="4" y="2" width="24" height="3" fill="none" stroke="${INK}" stroke-width="0.75"/><rect x="5" y="3" width="${(n / 3) * 22}" height="1" fill="${ACCENT}"/>`,
 };
 
@@ -157,6 +159,23 @@ const animations = {
   appear: {
     fps: 10, loop: false, next: 'idle', still: 4,
     poses: [{ sy: 0.15, sx: 0.3, opacity: 0.25, mouth: 'none', eyes: 'none' }, { sy: 0.5, sx: 0.6, opacity: 0.6, eyes: 'closed' }, { sy: 1.15, sx: 0.9 }, { sy: 0.95, sx: 1.05, eyes: 'happy' }, {}],
+  },
+  // Optional animations (SPEC §5): skins without them fall back to a required one.
+  wave: {
+    fps: 8, loop: false, still: 1,
+    poses: [0, 1, 0, 1, 0, 1].map((n) => ({ eyes: 'happy', mouth: 'smile', extra: [['armWave', n]] })),
+  },
+  unsure: {
+    fps: 4, loop: false, still: 2,
+    poses: [{ eyes: 'half', mouth: 'flat', look: -1 }, { eyes: 'half', mouth: 'wavy', look: 1 }, { eyes: 'up', mouth: 'flat', extra: [['question']] }, { eyes: 'half', mouth: 'flat', look: 1, extra: [['question']] }],
+  },
+  blush: {
+    fps: 6, loop: false, still: 2,
+    poses: [{ eyes: 'happy', extra: [['blush', 0]] }, { eyes: 'happy', sy: 0.94, extra: [['blush', 1]] }, { eyes: 'closed', mouth: 'smile', sy: 0.94, extra: [['blush', 1]] }, { eyes: 'happy', extra: [['blush', 0]] }],
+  },
+  laugh: {
+    fps: 10, loop: false, still: 1,
+    poses: [0, 1, 0, 1, 0, 1].map((n) => ({ dy: n ? -2 : 0, eyes: 'happy', mouth: 'open', extra: [['haha', n]] })),
   },
   download: {
     fps: 4, loop: true,

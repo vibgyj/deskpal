@@ -43,7 +43,7 @@ export const GEN_MODELS: GenModel[] = [
     dtype: { webgpu: { dtype: 'q4f16', sizeMB: 570 }, wasm: { dtype: 'q8', sizeMB: 618 } },
     template: { enable_thinking: false },
   },
-  // Larger models for capable devices (SPEC §10.5). Big downloads: try on Wi-Fi.
+  // Larger models for capable devices (SPEC §11.5). Big downloads: try on Wi-Fi.
   {
     id: 'onnx-community/gemma-3-1b-it-ONNX',
     label: 'Gemma 3 1B (large)',

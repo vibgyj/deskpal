@@ -77,11 +77,12 @@ button { font: inherit; color: inherit; }
 .msg.user { align-self: flex-end; background: var(--dp-user); max-width: 85%; }
 .msg.bot { align-self: flex-start; background: var(--dp-panel); border: 1px solid var(--dp-ink); max-width: 100%; }
 .msg.note { color: var(--dp-muted); font-style: italic; }
+.msg.thinking { border-style: dashed; }
 .sources { margin: 6px 0 0; padding: 6px 0 0 18px; border-top: 1px dashed var(--dp-muted); white-space: normal; }
 .sources li { margin: 2px 0; }
 .sources a { color: var(--dp-accent); }
 .snippet { display: block; color: var(--dp-muted); font-size: 12px; }
-.quote { margin: 0; padding: 2px 0 2px 9px; border-left: 3px solid var(--dp-accent); white-space: normal; }
+.quote { margin: 4px 0 0; padding: 2px 0 2px 9px; border-left: 3px solid var(--dp-accent); white-space: normal; }
 .quote mark { background: var(--dp-mark); color: inherit; padding: 0 2px; border-radius: 2px; }
 .from { margin-top: 4px; font-size: 12px; white-space: normal; }
 .from a { color: var(--dp-accent); }
@@ -90,6 +91,9 @@ button { font: inherit; color: inherit; }
   padding: 4px 10px; border: 1px solid var(--dp-ink); border-radius: 4px;
   background: var(--dp-panel); box-shadow: 2px 2px 0 var(--dp-shadow); cursor: pointer;
 }
+
+.followups { margin-top: 6px; }
+.followups button { font-size: 12px; padding: 2px 8px; }
 
 .progress { height: 10px; margin: 0 10px 8px; border: 1px solid var(--dp-ink); background: var(--dp-panel); }
 .progress > div { height: 100%; width: 0; background: var(--dp-accent); }

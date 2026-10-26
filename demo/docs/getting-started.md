@@ -11,8 +11,9 @@ answers questions from your own documentation.
    npx deskpal build-index ./docs -o deskpal-index.json --base-url /docs/
    ```
 
-2. Copy everything in `dist/` (`deskpal.js`, `deskpal-runtime.js` and the
-   `ort/` folder) and `deskpal-index.json` to your site.
+2. Copy everything in `dist/` (`deskpal.js`, `deskpal-runtime.js`,
+   `deskpal-worker.js` and the `ort/` folder) and `deskpal-index.json` to
+   your site.
 
 3. Add one script tag. No inline script is needed:
 

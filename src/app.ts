@@ -1,5 +1,5 @@
 import { createGenerativeAdapter, type ExtractiveAdapter, type GenerativeAdapter } from './adapters/index.ts';
-import { loadRuntime, RUNTIME_DOWNLOAD_MB } from './adapters/runtime-loader.ts';
+import { RUNTIME_DOWNLOAD_MB, startRuntime } from './adapters/runtime-loader.ts';
 import { ANNOUNCE, initialState, loopFor, step, type BehaviourEvent, type State } from './core/behaviour.ts';
 import type { DeskpalConfig } from './core/config.ts';
 import { DownloadProgress } from './core/progress.ts';
@@ -9,7 +9,9 @@ import { DEFAULT_EXTRACTIVE, type Extract } from './rag/extract.ts';
 import { loadIndex } from './rag/loader.ts';
 import { buildPrompt } from './rag/prompt.ts';
 import { MIN_SCORE_KEYWORD, MIN_SCORE_VECTOR, Searcher } from './rag/search.ts';
-import type { DeskpalIndex, Hit } from './rag/types.ts';
+import type { DeskpalIndex, Embedder, Hit } from './rag/types.ts';
+import { INTENT_ANIMATION, matchSmallTalk, SmallTalkMatcher } from './persona/smalltalk.ts';
+import { mergeVoice, Speaker, type Intent, type LineSet } from './persona/voice.ts';
 import { loadSkin, loadSkinFromUrl, type Skin } from './sprite/loader.ts';
 import { SpritePlayer } from './sprite/player.ts';
 import { buildDom, type WidgetDom } from './ui/dom.ts';
@@ -25,23 +27,32 @@ const SLEEP_MS = 150_000;
 const SNIPPET_CHARS = 220;
 /** Characters of context shown on each side of an extracted answer. */
 const QUOTE_CONTEXT = 140;
+/** Answers quicker than this never show a thinking line. */
+const THINKING_DELAY_MS = 400;
 const DONT_KNOW = /\bi don'?t know\b/i;
 
 export class Deskpal {
   private dom: WidgetDom;
   private store: Store;
   private sounds: Sounds;
+  private speaker: Speaker;
   private player: SpritePlayer | null = null;
   private state: State = initialState;
   private index: Promise<DeskpalIndex | null>;
   private keywordSearcher: Searcher | null = null;
   private vectorSearcher: Searcher | null = null;
   private extractive: ExtractiveAdapter | null = null;
+  private embedder: Embedder | null = null;
+  private smallTalkMatcher: SmallTalkMatcher | null = null;
   private generative: GenerativeAdapter | null;
   private generativeReady = false;
   /** The lazily loaded runtime, for the `browser` adapter and query embeddings. */
   private runtime: 'idle' | 'loaded' | 'declined' | 'failed' = 'idle';
   private inFlight: AbortController | null = null;
+  private thinkingTimer: ReturnType<typeof setTimeout> | undefined;
+  private thinkingMsg: HTMLElement | null = null;
+  /** The follow-up buttons under the latest answer. */
+  private followups: HTMLElement | null = null;
   private timers = new Set<ReturnType<typeof setTimeout>>();
   private idleTimers: ReturnType<typeof setTimeout>[] = [];
   private tipShown = false;
@@ -54,6 +65,7 @@ export class Deskpal {
     this.config = config;
     this.store = new Store(config.siteKey);
     this.sounds = new Sounds(this.store.get('sound') ?? false);
+    this.speaker = new Speaker(mergeVoice(config.voice), config.name);
     this.generative = createGenerativeAdapter(config);
     this.dom = buildDom(config.name);
     this.index = this.loadIndex();
@@ -71,7 +83,7 @@ export class Deskpal {
     this.dom.bubble.hidden = false;
     this.dom.launcher.setAttribute('aria-expanded', 'true');
     this.placeBubble();
-    if (!this.dom.log.childElementCount) this.addMessage('bot', this.config.greeting);
+    if (!this.dom.log.childElementCount) this.addMessage('bot', this.config.greeting ?? this.speaker.say('greeting'));
     this.dispatch('open');
     this.sounds.play('open');
     this.dom.input.focus();
@@ -157,6 +169,8 @@ export class Deskpal {
       skin = await this.defaultSkin();
     }
     this.player = new SpritePlayer(skin, this.config.scale, () => this.reducedMotion.matches);
+    // Site config wins over the skin's voice, which wins over the defaults.
+    this.speaker = new Speaker(mergeVoice(skin.manifest.voice, this.config.voice), this.config.name);
     this.dom.launcher.append(this.player.canvas);
     this.placeInitially();
 
@@ -227,9 +241,12 @@ export class Deskpal {
 
   // ---- behaviour --------------------------------------------------------
 
-  private async dispatch(event: BehaviourEvent): Promise<void> {
+  /** Feeds the state machine; `expression` replaces its one-shot animation. */
+  private async dispatch(event: BehaviourEvent, expression?: string): Promise<void> {
     const before = this.state;
-    const { state, once } = step(this.state, event);
+    const stepped = step(this.state, event);
+    const { state } = stepped;
+    const once = expression ?? stepped.once;
     this.state = state;
     if (!this.player) return;
     const announce = ANNOUNCE[once ?? ''] ?? (state.mode !== before.mode ? ANNOUNCE[loopFor(state.mode)] : undefined);
@@ -284,13 +301,16 @@ export class Deskpal {
     const ctrl = new AbortController();
     this.inFlight = ctrl;
     this.resetIdle();
+    this.clearFollowups();
     this.addMessage('user', question);
+    const intent = this.config.smallTalk ? matchSmallTalk(question, this.config.name) : null;
+    if (intent) return this.chat(intent);
     await this.dispatch('ask');
 
     const index = await this.index;
     if (ctrl.signal.aborted) return;
     if (!index || !this.keywordSearcher) {
-      this.addMessage('bot', "I haven't been given any docs to read yet, so I can't answer that.");
+      this.addMessage('bot', this.speaker.say('noDocs'));
       await this.dispatch('error');
       return;
     }
@@ -303,17 +323,59 @@ export class Deskpal {
       if (ctrl.signal.aborted) return;
     }
 
-    const searcher = this.vectorSearcher ?? this.keywordSearcher;
-    const minScore = this.config.minScore ?? (searcher.usesVectors ? MIN_SCORE_VECTOR : MIN_SCORE_KEYWORD);
-    const hits = await searcher.search(question, { topK: this.config.topK, minScore });
-    if (ctrl.signal.aborted) return;
-    if (hits.length === 0) return this.dontKnow(searcher, question);
+    this.startThinking();
+    try {
+      const searcher = this.vectorSearcher ?? this.keywordSearcher;
+      const minScore = this.config.minScore ?? (searcher.usesVectors ? MIN_SCORE_VECTOR : MIN_SCORE_KEYWORD);
+      const hits = await searcher.search(question, { topK: this.config.topK, minScore });
+      if (ctrl.signal.aborted) return;
+      if (hits.length === 0) {
+        const chatty = await this.smallTalkByMeaning(question);
+        if (ctrl.signal.aborted) return;
+        return chatty ? this.chat(chatty) : this.dontKnow(searcher, question);
+      }
 
-    if (this.extractive) return this.answerExtractive(question, hits, searcher, ctrl.signal);
-    if (this.generative) return this.answerGenerative(question, hits, searcher, ctrl.signal);
-    this.renderSnippets(hits);
-    await this.dispatch('answer-cited');
+      if (this.extractive) return await this.answerExtractive(question, hits, ctrl.signal);
+      if (this.generative) return await this.answerGenerative(question, hits, searcher, ctrl.signal);
+      await this.answerSnippets(hits);
+    } finally {
+      if (this.inFlight === ctrl) this.stopThinking();
+    }
+  }
+
+  /** A small-talk reply and its expression (SPEC §7). */
+  private async chat(intent: Intent): Promise<void> {
+    this.addMessage('bot', this.speaker.say(intent));
     this.sounds.play('answer');
+    await this.dispatch('chat', INTENT_ANIMATION[intent]);
+  }
+
+  /** Paraphrased small talk, by similarity, once the docs matched nothing. Needs the query embedder. */
+  private async smallTalkByMeaning(question: string): Promise<Intent | null> {
+    if (!this.config.smallTalk || !this.embedder) return null;
+    const embedder = this.embedder;
+    this.smallTalkMatcher ??= new SmallTalkMatcher((text) => embedder.embedQuery(text));
+    try {
+      return await this.smallTalkMatcher.match(question);
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
+  }
+
+  /** After THINKING_DELAY_MS, a `thinking` line, until the next bot message replaces it. */
+  private startThinking(): void {
+    this.stopThinking();
+    this.thinkingTimer = setTimeout(() => {
+      this.thinkingMsg = this.addMessage('note', this.speaker.say('thinking'));
+      this.thinkingMsg.classList.add('thinking');
+    }, THINKING_DELAY_MS);
+  }
+
+  private stopThinking(): void {
+    clearTimeout(this.thinkingTimer);
+    this.thinkingMsg?.remove();
+    this.thinkingMsg = null;
   }
 
   /** The runtime is needed for the `browser` adapter, or to embed queries for an index with vectors. */
@@ -370,10 +432,12 @@ export class Deskpal {
     void this.dispatch('download');
     const progress = new DownloadProgress(this.expectedDownloadMB(index), (f) => this.setProgress(f));
     try {
-      const rt = await loadRuntime(this.config.runtimeUrl);
-      rt.configure({ modelHost: this.config.modelHost });
+      const rt = await startRuntime(this.config.runtimeUrl, { modelHost: this.config.modelHost, worker: this.config.worker });
       // One model at a time keeps peak memory down on small devices.
-      if (this.hasUsableVectors(index)) this.vectorSearcher = new Searcher(index, await rt.loadEmbedder(DEFAULT_EMBEDDING, progress.update));
+      if (this.hasUsableVectors(index)) {
+        this.embedder = await rt.loadEmbedder(DEFAULT_EMBEDDING, progress.update);
+        this.vectorSearcher = new Searcher(index, this.embedder);
+      }
       if (this.config.adapter === 'browser') this.extractive = await rt.loadExtractive(DEFAULT_EXTRACTIVE, this.config.minAnswerScore, progress.update);
       this.runtime = 'loaded';
     } catch (err) {
@@ -392,7 +456,12 @@ export class Deskpal {
     this.dom.progress.setAttribute('aria-valuenow', String(pct));
   }
 
-  private async answerExtractive(question: string, hits: Hit[], searcher: Searcher, signal: AbortSignal): Promise<void> {
+  /**
+   * The answer span from `hits`, introduced by how sure the model is. Below
+   * minAnswerScore the sections themselves are shown: they already passed the
+   * relevance cutoff, and in testing the right span often scored low.
+   */
+  private async answerExtractive(question: string, hits: Hit[], signal: AbortSignal, intro?: LineSet, tried = new Set<Hit>()): Promise<void> {
     let found: Extract | null;
     try {
       found = await this.extractive!.extract(question, hits.map((h) => h.chunk.text), signal);
@@ -404,10 +473,67 @@ export class Deskpal {
       return;
     }
     if (signal.aborted) return;
-    if (!found) return this.dontKnow(searcher, question, hits);
-    this.renderExtract(found, hits);
-    await this.dispatch('answer-cited');
+    if (!found) return this.answerSnippets(hits, intro === 'nextBest' ? 'outOfIdeas' : 'snippets');
+    const sure = found.score >= this.config.sureAnswerScore;
+    const hit = hits[found.passage]!;
+    tried.add(hit);
+    const msg = this.renderExtract(this.speaker.say(intro ?? (sure ? 'found' : 'unsure')), found, hits);
+    this.addFollowups(msg, question, hit, found, hits, tried);
     this.sounds.play('answer');
+    await this.dispatch(sure ? 'answer-cited' : 'answer-unsure');
+  }
+
+  private async answerSnippets(hits: Hit[], intro: LineSet = 'snippets'): Promise<void> {
+    this.renderSnippets(hits, this.speaker.say(intro));
+    this.sounds.play('answer');
+    await this.dispatch('answer-cited');
+  }
+
+  /** "Show more" and "Not what I meant" under the latest extracted answer (SPEC §7). */
+  private addFollowups(msg: HTMLElement, question: string, hit: Hit, found: Extract, hits: Hit[], tried: Set<Hit>): void {
+    const bar = document.createElement('div');
+    bar.className = 'choices followups';
+    const more = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Show more' });
+    const other = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Not what I meant' });
+    more.addEventListener('click', () => {
+      msg.querySelector('.quote')?.replaceWith(this.quote(hit, found, true));
+      more.remove();
+      other.focus();
+    });
+    other.addEventListener('click', () => void this.nextBest(question, hits, tried));
+    bar.append(more, other);
+    msg.append(bar);
+    this.followups = bar;
+    this.scrollLog();
+  }
+
+  private clearFollowups(): void {
+    this.followups?.remove();
+    this.followups = null;
+  }
+
+  /** The best answer from the sections not shown yet. */
+  private async nextBest(question: string, hits: Hit[], tried: Set<Hit>): Promise<void> {
+    this.inFlight?.abort();
+    const ctrl = new AbortController();
+    this.inFlight = ctrl;
+    this.clearFollowups();
+    this.resetIdle();
+    this.addMessage('user', 'Not what I meant');
+    const rest = hits.filter((h) => !tried.has(h));
+    if (!rest.length) {
+      const msg = this.addMessage('bot', this.speaker.say('outOfIdeas'));
+      this.appendSources(msg, hits, false);
+      await this.dispatch('no-answer');
+      return;
+    }
+    await this.dispatch('ask');
+    this.startThinking();
+    try {
+      await this.answerExtractive(question, rest, ctrl.signal, 'nextBest', tried);
+    } finally {
+      if (this.inFlight === ctrl) this.stopThinking();
+    }
   }
 
   private async answerGenerative(question: string, hits: Hit[], searcher: Searcher, signal: AbortSignal): Promise<void> {
@@ -427,7 +553,7 @@ export class Deskpal {
       if (signal.aborted) return;
       console.error(err);
       msg.remove();
-      this.addMessage('note', "My language model isn't available right now, so here's what the docs say.");
+      this.addMessage('note', this.speaker.say('error'));
       this.renderSnippets(hits);
       await this.dispatch('error');
       return;
@@ -464,20 +590,21 @@ export class Deskpal {
 
   private async dontKnow(searcher: Searcher, question: string, near?: Hit[]): Promise<void> {
     const closest = near ?? (await searcher.search(question, { topK: 3, minScore: 0.05 }));
-    const msg = this.addMessage('bot', "I don't know that one.");
+    const msg = this.addMessage('bot', this.speaker.say('dontKnow'));
     if (closest.length) this.appendSources(msg, closest, false, 'These might be close:');
     await this.dispatch('no-answer');
     this.sounds.play('sorry');
   }
 
-  private renderSnippets(hits: Hit[]): void {
-    const msg = this.addMessage('bot', "Here's what the docs say:");
+  private renderSnippets(hits: Hit[], intro = this.speaker.say('snippets')): void {
+    const msg = this.addMessage('bot', intro);
     this.appendSources(msg, hits, true);
   }
 
   // ---- rendering --------------------------------------------------------
 
   private addMessage(kind: 'user' | 'bot' | 'note', text: string): HTMLElement {
+    if (kind !== 'user') this.stopThinking();
     const msg = document.createElement('div');
     msg.className = kind === 'note' ? 'msg bot note' : `msg ${kind}`;
     const span = document.createElement('span');
@@ -489,29 +616,11 @@ export class Deskpal {
     return msg;
   }
 
-  /** The answer highlighted in context, then where it came from and what else matched. */
-  private renderExtract(found: Extract, hits: Hit[]): void {
+  /** A persona line, the answer highlighted in context, where it came from and what else matched. */
+  private renderExtract(intro: string, found: Extract, hits: Hit[]): HTMLElement {
     const hit = hits[found.passage]!;
-    const msg = this.addMessage('bot', '');
-    msg.querySelector('.text')!.remove();
-    const quote = document.createElement('blockquote');
-    quote.className = 'quote';
-    const mark = document.createElement('mark');
-    if (found.start !== undefined && found.end !== undefined) {
-      const text = hit.chunk.text;
-      const before = text.slice(Math.max(0, found.start - QUOTE_CONTEXT), found.start);
-      const after = text.slice(found.end, found.end + QUOTE_CONTEXT);
-      mark.textContent = text.slice(found.start, found.end);
-      quote.append(
-        (found.start > QUOTE_CONTEXT ? '…' : '') + before.replace(/^\S*\s/, (m) => (found.start! > QUOTE_CONTEXT ? '' : m)),
-        mark,
-        after.replace(/\s\S*$/, '') + (found.end + QUOTE_CONTEXT < text.length ? '…' : ''),
-      );
-    } else {
-      mark.textContent = found.answer;
-      quote.append(mark);
-    }
-    msg.append(quote);
+    const msg = this.addMessage('bot', intro);
+    msg.append(this.quote(hit, found, false));
     const from = document.createElement('div');
     from.className = 'from';
     from.append('— ', this.sourceLink(hit));
@@ -519,6 +628,30 @@ export class Deskpal {
     const others = hits.filter((h) => h !== hit);
     if (others.length) this.appendSources(msg, others, false, 'Also see:');
     this.scrollLog();
+    return msg;
+  }
+
+  /** The answer marked within its section: some context around it, or the whole section. */
+  private quote(hit: Hit, found: Extract, whole: boolean): HTMLElement {
+    const quote = document.createElement('blockquote');
+    quote.className = 'quote';
+    const mark = document.createElement('mark');
+    const text = hit.chunk.text;
+    if (found.start === undefined || found.end === undefined) {
+      mark.textContent = found.answer;
+      quote.append(mark);
+      if (whole) quote.append(document.createElement('br'), text);
+      return quote;
+    }
+    const { start, end } = found;
+    const from = whole ? 0 : Math.max(0, start - QUOTE_CONTEXT);
+    const to = whole ? text.length : end + QUOTE_CONTEXT;
+    mark.textContent = text.slice(start, end);
+    // Cut at word boundaries, and say so with an ellipsis.
+    const before = text.slice(from, start).replace(/^\S*\s/, (m) => (from > 0 ? '' : m));
+    const after = text.slice(end, to).replace(/\s\S*$/, (m) => (to < text.length ? '' : m));
+    quote.append((from > 0 ? '…' : '') + before, mark, after + (to < text.length ? '…' : ''));
+    return quote;
   }
 
   private sourceLink(hit: Hit): HTMLElement {

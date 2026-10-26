@@ -1,4 +1,4 @@
-import type { AnimationDef } from './manifest.ts';
+import { OPTIONAL_ANIMATIONS, type AnimationDef } from './manifest.ts';
 import type { Skin } from './loader.ts';
 
 /** How long a one-shot's key pose is held under reduced motion. */
@@ -40,8 +40,14 @@ export class SpritePlayer {
     return name in this.skin.manifest.animations;
   }
 
+  /** The animation this skin plays for `name`: itself, or an optional animation's fallback. */
+  resolve(name: string): string {
+    return this.has(name) ? name : (OPTIONAL_ANIMATIONS[name] ?? name);
+  }
+
   /** Plays `name`. For a loop the promise resolves at once. */
-  play(name: string, then?: string): Promise<void> {
+  play(requested: string, then?: string): Promise<void> {
+    const name = this.resolve(requested);
     const def = this.skin.manifest.animations[name];
     if (!def) return Promise.resolve();
     this.finishCurrent();

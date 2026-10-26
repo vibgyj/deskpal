@@ -202,12 +202,60 @@
       "next": "idle",
       "still": 73
     },
-    "download": {
+    "wave": {
       "frames": [
         74,
         75,
         76,
-        77
+        77,
+        78,
+        79
+      ],
+      "fps": 8,
+      "loop": false,
+      "still": 75
+    },
+    "unsure": {
+      "frames": [
+        80,
+        81,
+        82,
+        83
+      ],
+      "fps": 4,
+      "loop": false,
+      "still": 82
+    },
+    "blush": {
+      "frames": [
+        84,
+        85,
+        86,
+        87
+      ],
+      "fps": 6,
+      "loop": false,
+      "still": 86
+    },
+    "laugh": {
+      "frames": [
+        88,
+        89,
+        90,
+        91,
+        92,
+        93
+      ],
+      "fps": 10,
+      "loop": false,
+      "still": 89
+    },
+    "download": {
+      "frames": [
+        94,
+        95,
+        96,
+        97
       ],
       "fps": 4,
       "loop": true

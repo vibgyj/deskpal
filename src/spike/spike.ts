@@ -1,4 +1,4 @@
-// Runtime spike (SPEC §10): measures first-answer latency for candidate
+// Runtime spike (SPEC §11): measures first-answer latency for candidate
 // generation models and retrieval quality for candidate embedding models,
 // on whatever machine opens this page.
 import { loadIndex } from '../rag/loader.ts';

@@ -3,24 +3,31 @@
 A drop-in JavaScript widget that puts an animated, 90s-style desk assistant on
 any website. It answers questions from the site's own documentation using
 retrieval (RAG) and a small extractive question-answering model that runs **in
-the visitor's browser by default**. Generative answers from a larger local or
-cloud model are optional (§4).
+the visitor's browser by default**. Its personality does not depend on any
+model, so it is just as friendly on a browser that can't run one. Generated
+answers from a larger model are an option the site owner turns on (§4).
 
 Decided in the kickoff interview, 2026-10-25. This file is the source of truth;
 change it before changing behaviour.
 
 ## 1. Principles
 
-- **Self-contained.** The core (character, animation, chat UI, keyword
+- **Self-contained.** The core (character, animation, chat UI, persona, keyword
   retrieval) has zero runtime dependencies. The one sanctioned exception is the
   in-browser inference runtime (§4), which is **lazy-loaded** on the first
   question, after consent, so a page that never asks never downloads it.
+- **Works on most browsers.** Every feature a visitor sees by default must
+  work without WebGPU, on a mid-range phone. Anything heavier is opt-in and
+  falls back gracefully (§4, tiers).
 - **Original character.** The spirit of the Office assistant, never its
   likeness: no paperclip, no "Clippy" in names, copy or art.
-- **Charming, not intrusive.** Mostly passive and a little cheeky (§6).
+- **Charming, not intrusive.** Mostly passive and a little cheeky (§6). The
+  charm comes from the persona (§7): lines, small talk and animations, not
+  from generated text.
 - **Grounded answers.** Every answer cites the doc sections it came from. The
   default answer is a quote from the docs, never generated text: in testing,
-  every generative model small enough for a widget invented things (§10.1).
+  every generative model small enough for most browsers invented things
+  (§11.1).
 - **Private by default.** With the default adapter, nothing the user types
   leaves their device.
 
@@ -31,8 +38,9 @@ change it before changing behaviour.
   - `dist/deskpal.js`: one self-contained IIFE file for a plain
     `<script defer src>`. This is what a no-build site (e.g. Praxbook) vendors.
   - `dist/deskpal.mjs`: an ESM build for npm users.
-  - `dist/deskpal-runtime.js` and `dist/ort/`: the lazily loaded inference
-    runtime (transformers.js and ONNX Runtime's WASM). Sites host these next to
+  - `dist/deskpal-runtime.js`, `dist/deskpal-worker.js` and `dist/ort/`: the
+    lazily loaded inference runtime (transformers.js and ONNX Runtime's WASM),
+    and the Web Worker that runs it (§4). Sites host these next to
     `deskpal.js`; `runtimeUrl` overrides the location.
 - No inline script is required to boot. Configuration is read from `data-*`
   attributes on the script tag, or from a JSON `<script type="application/json"
@@ -62,11 +70,22 @@ change it before changing behaviour.
   ranks by keyword score alone.
 - **Relevance cutoff:** below `minScore` (default 0.45 with vectors, 0.3
   keyword-only) nothing counts, and the answer is "I don't know that one". In
-  testing this alone rejected every off-topic question.
+  testing this alone rejected every off-topic question, so **every answer
+  path, including generated ones, sits behind it.**
 - If no model is available or allowed, the answer is the best-matching
   snippets themselves, with links. That is still useful.
 
-## 4. Model backends (pluggable)
+## 4. Answer tiers and model backends
+
+| Tier | Runs on | Answer |
+|---|---|---|
+| 0. No download | every browser | the matching doc sections (keyword search) |
+| 1. **Default** | most browsers (WASM, ~110 MB once) | a quote from the docs, picked by an extractive model |
+| 2. Writer (opt-in by the site owner) | wherever it is configured | a written answer with citations |
+
+A higher tier always falls back to the one below: a writer that errors, times
+out or can't run on the device gives way to tier 1 (if the visitor allowed the
+download) or tier 0. The persona (§7) is the same in every tier.
 
 ```ts
 type ModelAdapter = ExtractiveAdapter | GenerativeAdapter;
@@ -92,40 +111,77 @@ interface Embedder {
 }
 ```
 
-- **`browser` (default): extractive.** transformers.js (ONNX Runtime Web, WASM)
-  runs **`Xenova/distilbert-base-cased-distilled-squad`** (int8, 66 MB,
-  Apache-2.0). It picks the answer span out of the retrieved sections, and the
-  bubble shows that span highlighted inside its section, with the link. Below
-  `minAnswerScore` (default 0.1) the answer is "I don't know that one".
-  English only for now (§10.4).
-- **`browser-generative` (planned, opt-in):** a generative model in the
-  browser, offered only on devices that report WebGPU and enough memory. The
-  candidate is Qwen3-0.6B (needs ~2 GB RAM); it waits on benchmarks on capable
-  hardware (§10.5). Not in v1.
-- **`openai-compatible`: external and cloud models.** Any
-  `/v1/chat/completions` endpoint, local (Ollama, llama.cpp server, vLLM) or
-  hosted. Streams. It sends the question and the retrieved doc excerpts to
-  that endpoint, so it is not private by default and the docs say so. API keys
-  never go in the page: sites put hosted APIs behind their own proxy.
-- **`none`:** retrieval-only answers.
+### Tier 1: `browser` (default, extractive)
+
+transformers.js (ONNX Runtime Web, WASM) runs
+**`Xenova/distilbert-base-cased-distilled-squad`** (int8, 66 MB, Apache-2.0).
+It picks the answer span out of the retrieved sections, and the bubble shows
+that span highlighted inside its section, with the link. At or above
+`sureAnswerScore` (default 0.5) it is presented as sure; below that as a best
+guess (§7). Below `minAnswerScore` (default 0.1) it shows the matching
+sections instead: they already passed the relevance cutoff, and in testing
+the right span often scored low on paraphrased questions. English only for now
+(§11.4); no smaller model did as well (§11.7).
+
+- **Web Worker.** The models run in a module Worker (`deskpal-worker.js`) so
+  inference never blocks the page and the character keeps animating. Browsers
+  only start a Worker from the page's own origin, so when the runtime is
+  hosted elsewhere, the Worker can't start, or `worker: false` is set, the
+  runtime runs on the main thread instead.
 - **Consent and loading.** Whatever needs the runtime (the `browser` adapter,
   or query embeddings for an index with vectors) asks once in the bubble,
   "download ~N MB?", and remembers the answer per site. On yes it shows a
   progress bar and the `download` animation; the browser caches the files. On
-  no, it falls back to keyword search and snippet answers.
+  no, it falls back to tier 0.
 - **Model URL is configurable** (`modelHost`). It defaults to the public
   Hugging Face CDN, and the docs recommend self-hosting the weights on the
   site's own origin (keeps CSP at `'self'`, no third party sees who uses it).
-- Document the CSP needs: WASM requires `'wasm-unsafe-eval'` in `script-src`,
-  and a model or endpoint on another origin needs `connect-src`. The runtime
-  imports its WASM loader from its own URL (never `blob:`), so `script-src`
-  needs no `blob:`. The built-in skin is inlined as a `data:` image, so it needs
-  `img-src data:` unless the site self-hosts the skin and sets `skin`.
+
+### Tier 2: writers
+
+Generated answers need a model bigger than most browsers can run (§11.1,
+§11.5), so a writer is treated like an external service, even when it runs on
+the visitor's own GPU. Writers get the same prompt: the top-k sections and a
+strict instruction to answer only from them (§8). Several API contracts are
+supported:
+
+- **`openai-compatible`** (built): any `/v1/chat/completions` endpoint, local
+  (Ollama, llama.cpp server, LM Studio, vLLM) or hosted (OpenRouter, Groq, and
+  providers' own OpenAI-compatible endpoints). Streams.
+- **`anthropic`** (planned): the Messages API, streaming.
+- **`gemini`** (planned): the Gemini API, streaming.
+- **`custom`** (planned): the site passes `generate(prompt, signal)`, returning
+  an `AsyncIterable<string>`, to `init()`. This covers any other API and the
+  site's own backend and auth.
+- **`browser-generative`** (experimental, planned): a generative model in the
+  browser on WebGPU. Candidate: Gemma 3 1B, the only model of 1B or more that
+  loaded on a phone in testing (§11.5). Offered only after checking the
+  device's WebGPU limits, and only as an opt-in.
+- **Built-in browser models** (to investigate, §11.8): where the browser
+  provides an on-device model (e.g. Chrome's Prompt API), use it with no
+  download from the site.
+
+Writers that send the question and excerpts to a server are not private, and
+the docs say so. API keys never go in the page: sites put hosted APIs behind
+their own proxy.
+
+### `none`
+
+Tier 0 only: retrieval and snippets, never a download prompt.
+
+### CSP
+
+WASM requires `'wasm-unsafe-eval'` in `script-src`, and a model or endpoint on
+another origin needs `connect-src`. The Worker needs `worker-src 'self'` (or a
+`script-src` that allows its URL). The runtime imports its WASM loader from its
+own URL (never `blob:`), so neither needs `blob:`. The built-in skin is inlined
+as a `data:` image, so it needs `img-src data:` unless the site self-hosts the
+skin and sets `skin`.
 
 ## 5. Character and animation
 
 - **Sprite engine:** sprite sheets plus a JSON manifest per character:
-  `{ frameSize, sheets, animations: { name: { frames, fps, loop, next? } } }`.
+  `{ frameSize, sheets, animations: { name: { frames, fps, loop, next? } }, voice? }`.
   Rendered with a `<canvas>` (or a CSS `background-position` stepper) and driven
   by a small state machine.
 - **Required animation set** (every skin provides these):
@@ -133,9 +189,13 @@ interface Embedder {
   `greet`, `wave-goodbye`, `listening`, `thinking`, `talking`, `happy`,
   `confused`, `sorry` (no answer found), `pointing` (at a citation),
   `drag` (held), `land` (dropped), `hide`, `appear`, `download` (model loading).
+- **Optional animations**, each with a fallback the widget plays when a skin
+  lacks it: `wave` (→ `greet`), `unsure` (→ `confused`), `blush` (→ `happy`),
+  `laugh` (→ `happy`). Optional animations let new expressions arrive without
+  breaking existing skins.
 - **Skins:** the default mascot is drawn by us (generated from code into sprite
-  sheets). Custom characters drop in with their own manifest. The skin format is
-  documented as a public contract.
+  sheets). Custom characters drop in with their own manifest. The skin format,
+  including `voice` (§7), is documented as a public contract.
 - **Default mascot:** an office-supply object (concept to be chosen from 2–3
   sketches: e.g. bendy pencil, stapler, sticky note).
 - **Reduced motion:** under `prefers-reduced-motion`, animations become
@@ -158,39 +218,73 @@ interface Embedder {
 - Keyboard: a focusable launcher button, Esc closes, and the bubble is an ARIA
   dialog with a live region for streamed answers.
 
-## 7. Answers
+## 7. Persona
 
-- **Extractive (default):** the answer span, highlighted in context within its
-  section, with that section's link, then the other matching sections.
+The "friendly helper" feel, in every tier, without a generative model.
+
+- **Voice.** Lines for each situation, picked at random from a small set, never
+  the same line twice in a row: `greeting`, `thinking`, `found` (confident
+  answer), `unsure` (low-confidence answer), `snippets` (tier 0), `dontKnow`,
+  `noDocs`, `error`, `nextBest` and `outOfIdeas` (follow-ups), plus small-talk
+  replies. `{name}` in a line becomes the assistant's name. The default voice
+  is built in; a skin's manifest can carry a `voice` (each mascot its own
+  personality), and the site's `voice` config overrides both, line set by line
+  set, which also covers translation. `greeting` in config still wins for the
+  first line.
+- **Thinking line.** If an answer takes more than ~400 ms, a `thinking` line
+  ("Let me flip through the docs…") shows in the log until the answer
+  replaces it.
+- **Small talk.** Greetings, thanks, goodbyes, "who are you", "what can you
+  do", "how are you", praise, insults and "tell me a joke" get a reply from the
+  voice and an animation (`wave`, `happy`, `blush`, `sorry`, `laugh`), without
+  searching the docs. A message counts as small talk only when it has nothing
+  else in it: "hi, how do I install it?" is a question. Matching is by phrase
+  patterns, which work in every tier. When the query embedder is loaded and a
+  short message matched no doc section, it is also compared with example
+  phrases for each intent, to catch paraphrases. `smallTalk: false` turns it
+  off.
+- **Confidence.** An extracted answer scoring at least `sureAnswerScore`
+  starts with a `found` line and plays `pointing`; below it, an `unsure` line
+  ("I think this is it, but double-check:") and `unsure`.
+- **Follow-ups.** Under the latest answer: **Show more** (the whole section)
+  and **Not what I meant** (the next best answer from the remaining sections,
+  then `outOfIdeas` with the closest links). The source link opens the page.
+
+## 8. Answers
+
+- **Extractive (default):** a persona line, then the answer span highlighted in
+  context within its section, with that section's link, then the other
+  matching sections and the follow-ups.
 - **Generative:** the prompt contains the top-k chunks and a strict
   instruction to answer only from them, in one or two sentences, and to say so
   when they don't cover the question. Output is capped at 80 tokens.
 - Each answer ends with source links (title + heading path → url). The
   character plays `pointing` toward them.
-- When retrieval finds nothing above the cutoff, or the extractive score is
-  below `minAnswerScore`, it plays `sorry` and answers "I don't know that one",
-  plus the closest links if any.
+- When retrieval finds nothing above the cutoff, it plays `sorry` and answers
+  with a `dontKnow` line, plus the closest links if any. When the extractive
+  score is below `minAnswerScore`, it shows the matching sections (tier 0).
 
-## 8. Repo layout (planned)
+## 9. Repo layout
 
 ```
 src/core/        state machine, config, storage
+src/persona/     voice, small talk
 src/sprite/      sprite engine, manifest loader
 src/ui/          shadow-DOM bubble, launcher, drag
 src/rag/         index loader, search, embedding spec, prompt builder
-src/adapters/    openai-compatible, runtime loader
-src/runtime/     lazily loaded: transformers.js embedder + extractive QA
+src/adapters/    openai-compatible, runtime loader, worker client
+src/runtime/     lazily loaded: transformers.js embedder + extractive QA, worker
 src/cli/         build-index
 skins/default/   sprite sheets + manifest (+ generator script)
 demo/            static demo site with its own docs and index
 ```
 
-## 9. Out of scope for v1
+## 10. Out of scope for v1
 
 Voice input/output, multi-turn memory beyond the open bubble, crawling the site
 at runtime, analytics of any kind, and a hand-written inference runtime.
 
-## 10. Open questions
+## 11. Open questions
 
 1. ~~WebLLM vs transformers.js~~ **Decided 2026-10-25: transformers.js.** It
    has a WASM fallback (WebLLM is WebGPU-only), and it runs the same embedding
@@ -204,7 +298,22 @@ at runtime, analytics of any kind, and a hand-written inference runtime.
 2. ~~Embedding model~~ **Decided 2026-10-25: bge-small-en-v1.5** (§3).
 3. Default mascot concept, chosen from sketches.
 4. A multilingual extractive model; DistilBERT-SQuAD is English only.
-5. The `browser-generative` model: benchmark Qwen3-0.6B and larger models with
-   the spike page (`npm run spike`) on WebGPU hardware, for quality and
-   first-answer latency.
-6. Run inference in a Web Worker so WASM inference never blocks the page.
+5. ~~Can a browser model write good answers?~~ **Answered 2026-10-25: not on
+   most browsers.** On a Pixel phone (WebGPU only after enabling
+   `#enable-unsafe-webgpu`), Gemma 3 1B answered 5 of 5 with citations but
+   didn't refuse off-topic questions (the relevance cutoff, §3, handles those);
+   Llama 3.2 1B and Qwen3 1.7B failed to run. Good answers need ~1B+ models,
+   a ~750 MB download and WebGPU, so writers are tier 2 (§4). The persona
+   (§7) gives every tier the friendly feel instead.
+6. ~~Web Worker~~ **Decided and built 2026-10-25:** the runtime runs in a
+   module Worker, with a main-thread fallback (§4). In headless Chromium,
+   answering two questions caused no main-thread long tasks with the Worker
+   (360 frames in 6 s), against ~1.7 s of long tasks (262 frames) without.
+7. ~~A smaller extractive model~~ **Decided 2026-10-25: keep DistilBERT.**
+   On 20 questions (18 answerable), MobileBERT-SQuAD2 (27 MB) gave worse spans
+   and crashed on contexts over 512 tokens; MiniLM-L12-QA (34 MB) picked wrong
+   spans more often, with scores too low to separate right from wrong.
+   DistilBERT's right answers scored 0.01–0.77, which is why low scores now
+   show the sections rather than "I don't know" (§4).
+8. Whether browsers' built-in models (e.g. Chrome's Prompt API) are available
+   to ordinary web pages, and good enough to be a writer.

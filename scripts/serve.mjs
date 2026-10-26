@@ -31,7 +31,7 @@ const ISOLATION = process.env.COI === '1' ? { 'cross-origin-opener-policy': 'sam
 
 createServer(async (req, res) => {
   let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (/^\/(deskpal(-runtime)?\.js(\.map)?|ort\/[\w.-]+)$/.test(path)) path = `/dist${path}`;
+  if (/^\/(deskpal(-runtime|-worker)?\.js(\.map)?|ort\/[\w.-]+)$/.test(path)) path = `/dist${path}`;
   else path = `/demo${path.endsWith('/') ? `${path}index.html` : path}`;
   const file = normalize(join(ROOT, path));
   if (!file.startsWith(ROOT)) return res.writeHead(403).end();

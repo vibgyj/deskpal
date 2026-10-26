@@ -9,15 +9,19 @@ answers by quoting your docs, so it never makes things up. See
 npx deskpal build-index ./docs -o deskpal-index.json --base-url /docs/
 ```
 
-Copy everything in `dist/` (`deskpal.js`, `deskpal-runtime.js` and `ort/`) and
+Copy everything in `dist/` (`deskpal.js`, `deskpal-runtime.js`,
+`deskpal-worker.js` and `ort/`) and
 `deskpal-index.json` to your site, then:
 
 ```html
 <script defer src="/deskpal.js" data-index="/deskpal-index.json"></script>
 ```
 
-On the first question it asks the visitor to download about 110 MB of model
-files, once. Say no and it shows the matching doc sections instead.
+It has a personality that needs no model: lines for every situation, small
+talk, and expressions that follow how sure it is (SPEC §7). On the first real
+question it asks the visitor to download about 110 MB of model files, once,
+which then run in a Web Worker. Say no and it shows the matching doc sections
+instead.
 `adapter: "openai-compatible"` uses a local or cloud model to write answers
 instead (see `demo/docs/models.md`).
 
@@ -27,7 +31,7 @@ instead (see `demo/docs/models.md`).
 npm install
 npm test          # unit tests (node --test, no build needed)
 npm run typecheck
-npm run build     # dist/: deskpal.js (IIFE), deskpal.mjs (ESM), deskpal-runtime.js + ort/, cli.mjs
+npm run build     # dist/: deskpal.js (IIFE), deskpal.mjs (ESM), deskpal-runtime.js, deskpal-worker.js + ort/, cli.mjs
 npm run demo      # builds, indexes demo/docs and serves http://localhost:5173
 ```
 
@@ -48,24 +52,26 @@ localhost; on Android Chrome, add the address to
 - `scripts/spike-quality.ts` compares answer quality in Node, one model per
   process. Run it under a memory cap on small machines.
 
-The 2026-10-25 comparison of 13 models is summarised in SPEC §10.1.
+The 2026-10-25 comparisons are summarised in SPEC §11: 13 models for answer
+quality, phone results for 1B+ models, and smaller extractive models.
 
 ## Status
 
-Working: the sprite engine and skin format, the shadow-DOM bubble, the
-behaviour state machine, drag/hide/remember, the tip, sounds and reduced motion.
-Answers: hybrid retrieval (bge-small plus keywords) with a relevance cutoff,
-extractive answers in the browser, plus the `openai-compatible` and `none`
-adapters. `build-index` for Markdown and HTML, with embeddings.
+Working: the sprite engine and skin format (with optional animations), the
+shadow-DOM bubble, the behaviour state machine, drag/hide/remember, the tip,
+sounds and reduced motion. The persona: voice lines, small talk, confidence and
+follow-ups. Answers: hybrid retrieval (bge-small plus keywords) with a
+relevance cutoff, extractive answers in a Web Worker, plus the
+`openai-compatible` and `none` adapters. `build-index` for Markdown and HTML,
+with embeddings.
 
-Open (SPEC §10):
+Open (SPEC §4, §11):
 
-1. **Mascot**: `skins/default` is a placeholder blob implementing all 19
-   required animations.
+1. **Mascot**: `skins/default` is a placeholder blob.
 2. **Multilingual answers**: the extractive model is English only.
-3. **`browser-generative`**: an opt-in generative mode for capable devices,
-   waiting on benchmarks.
-4. **Web Worker**: run inference off the main thread.
+3. **More writers**: `anthropic`, `gemini`, `custom` and an experimental
+   `browser-generative`, with fallback to extractive answers.
+4. **Built-in browser models**: whether Chrome's Prompt API can be a writer.
 
 ## License
 

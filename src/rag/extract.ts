@@ -7,7 +7,7 @@ export interface ExtractModel {
   sizeMB: number;
 }
 
-/** Chosen 2026-10-25 (SPEC §4, §10.1). English only. */
+/** Chosen 2026-10-25 (SPEC §4, §11.1, §11.7). English only. */
 export const DEFAULT_EXTRACTIVE: ExtractModel = { id: 'Xenova/distilbert-base-cased-distilled-squad', dtype: 'q8', sizeMB: 66 };
 
 export interface Extract {

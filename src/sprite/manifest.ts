@@ -10,6 +10,8 @@ export interface SkinManifest {
   /** Sheet image URLs, relative to the manifest. */
   sheets: string[];
   animations: Record<string, AnimationDef>;
+  /** The character's lines (SPEC §7): line set name → one line or a list. */
+  voice?: Record<string, string | string[]>;
 }
 
 export interface AnimationDef {
@@ -47,6 +49,17 @@ export const REQUIRED_ANIMATIONS = [
   'download',
 ] as const;
 
+/**
+ * Expressions a skin may add. When it doesn't, the widget plays the fallback,
+ * so new expressions never break existing skins.
+ */
+export const OPTIONAL_ANIMATIONS: Record<string, (typeof REQUIRED_ANIMATIONS)[number]> = {
+  wave: 'greet',
+  unsure: 'confused',
+  blush: 'happy',
+  laugh: 'happy',
+};
+
 /** Returns a list of problems; empty when the manifest is usable. */
 export function validateManifest(m: unknown): string[] {
   const errors: string[] = [];
@@ -64,5 +77,6 @@ export function validateManifest(m: unknown): string[] {
     if (a.next && !anims[a.next]) errors.push(`${name}: next "${a.next}" does not exist`);
     if (a.sheet !== undefined && !(a.sheet >= 0 && a.sheet < (s.sheets?.length ?? 0))) errors.push(`${name}: sheet ${a.sheet} does not exist`);
   }
+  if (s.voice !== undefined && (typeof s.voice !== 'object' || Array.isArray(s.voice))) errors.push('voice must be an object of line sets');
   return errors;
 }

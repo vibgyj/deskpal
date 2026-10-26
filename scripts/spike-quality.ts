@@ -2,26 +2,31 @@
 // citations, refusals) does not depend on hardware, so this can run on any
 // machine; latency has to be measured in the browser spike on target hardware.
 //
-//   node scripts/spike-quality.ts retrieve <out-dir>
+//   node scripts/spike-quality.ts retrieve <out-dir> [all]
 //   node scripts/spike-quality.ts run <model-key> <out-dir> [question-number]
 //
 // Run each model in its own process (ideally under a memory cap) so one that
 // is too big for the machine cannot take it down. DESKPAL_MODEL_CACHE sets
 // where weights are downloaded, so they can be deleted between models.
+// `retrieve ... all` adds the 13 paraphrased retrieval-eval questions, for a
+// bigger extractive comparison.
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { env, pipeline, TextStreamer } from '@huggingface/transformers';
 import { parseIndex } from '../src/rag/loader.ts';
+import { joinPassages, toExtract } from '../src/rag/extract.ts';
 import { buildPrompt, SYSTEM_PROMPT } from '../src/rag/prompt.ts';
 import { Searcher } from '../src/rag/search.ts';
 import type { Chunk, Hit } from '../src/rag/types.ts';
 import { docText, embedAll, EMBED_MODELS, queryText, type Extractor } from '../src/spike/embed.ts';
-import { GEN_QUESTIONS } from '../src/spike/models.ts';
+import { EVAL_QUESTIONS, GEN_QUESTIONS } from '../src/spike/models.ts';
 
 type Kind = 'chat' | 'text2text' | 'extractive' | 'pleias';
 
 const MODELS: Record<string, { id: string; kind: Kind; dtype: string; template?: Record<string, unknown> }> = {
   'distilbert-squad': { id: 'Xenova/distilbert-base-cased-distilled-squad', kind: 'extractive', dtype: 'q8' },
+  'mobilebert-squad2': { id: 'onnx-community/mobilebert-uncased-squad-v2-ONNX', kind: 'extractive', dtype: 'q8' },
+  'minilm-qa-all': { id: 'onnx-community/all-MiniLM-L12-v2-qa-all-ONNX', kind: 'extractive', dtype: 'q8' },
   'flan-t5-small': { id: 'Xenova/flan-t5-small', kind: 'text2text', dtype: 'q8' },
   'smollm2-135m': { id: 'HuggingFaceTB/SmolLM2-135M-Instruct', kind: 'chat', dtype: 'q8' },
   'lfm2-350m': { id: 'onnx-community/LFM2-350M-ONNX', kind: 'chat', dtype: 'q4' },
@@ -36,7 +41,8 @@ const MODELS: Record<string, { id: string; kind: Kind; dtype: string; template?:
 const MAX_NEW_TOKENS = 80;
 /** Pleias-RAG reasons (query and source analysis, draft) before its answer, so it needs room. */
 const PLEIAS_MAX_NEW_TOKENS = 600;
-const TOP_K = 3;
+/** Same as the widget's default topK. */
+const TOP_K = 4;
 const DONT_KNOW = /\bi don'?t know\b/i;
 
 interface Context {
@@ -46,19 +52,19 @@ interface Context {
 
 const [mode, a, b, c] = process.argv.slice(2);
 
-if (mode === 'retrieve') await retrieve(a!);
+if (mode === 'retrieve') await retrieve(a!, b === 'all');
 else if (mode === 'run') await run(a!, b!, c === undefined ? undefined : Number(c));
-else throw new Error('usage: spike-quality.ts retrieve <out-dir> | run <model-key> <out-dir> [question-number]');
+else throw new Error('usage: spike-quality.ts retrieve <out-dir> [all] | run <model-key> <out-dir> [question-number]');
 
 /** Best retrieval from the embedding comparison (bge-small, blended with keywords). */
-async function retrieve(outDir: string): Promise<void> {
+async function retrieve(outDir: string, all: boolean): Promise<void> {
   const index = parseIndex(JSON.parse(await readFile('demo/deskpal-index.json', 'utf8')));
   const model = EMBED_MODELS.find((m) => m.id === 'Xenova/bge-small-en-v1.5')!;
   const extractor = (await pipeline('feature-extraction', model.id, { dtype: model.dtype as never })) as unknown as Extractor;
   const docs = await embedAll(extractor, model, index.chunks.map(docText));
   const keyword = new Searcher(index);
   const contexts: Context[] = [];
-  for (const question of GEN_QUESTIONS) {
+  for (const question of all ? [...GEN_QUESTIONS, ...EVAL_QUESTIONS.map((e) => e.q)] : GEN_QUESTIONS) {
     const [q] = await embedAll(extractor, model, [queryText(model, question)]);
     const kw = new Map((await keyword.search(question, { topK: index.chunks.length, minScore: 0 })).map((h) => [h.chunk.id, h.keyword]));
     const hits = index.chunks
@@ -133,9 +139,12 @@ async function run(key: string, outDir: string, only?: number): Promise<void> {
       const [out] = await pipe(prompt, { max_new_tokens: MAX_NEW_TOKENS, do_sample: false });
       text = out.generated_text;
     } else {
-      // Extractive: the answer is a span copied from the docs, with a confidence score.
-      const out = await pipe(question, hits.map((h: Hit) => h.chunk.text).join('\n\n'));
-      text = out.answer;
+      // Extractive: the answer is a span copied from the docs, with a confidence
+      // score, built and mapped back the way the widget does it.
+      const passages = hits.map((h: Hit) => h.chunk.text);
+      const joined = joinPassages(passages);
+      const out = await pipe(question, joined.context);
+      text = toExtract(passages, joined, out.answer, out.score)?.answer ?? '';
       score = Math.round(out.score * 1000) / 1000;
     }
     const ms = Math.round(performance.now() - t);
