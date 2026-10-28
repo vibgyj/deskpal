@@ -4,6 +4,8 @@ import { startWorker } from '../src/adapters/worker-client.ts';
 import type { WorkerRequest, WorkerResponse } from '../src/runtime/protocol.ts';
 import { DEFAULT_EMBEDDING } from '../src/rag/embedding.ts';
 import { DEFAULT_EXTRACTIVE } from '../src/rag/extract.ts';
+import { DEFAULT_GENERATOR, generatorAdapter } from '../src/adapters/browser-generative.ts';
+import { buildPrompt } from '../src/rag/prompt.ts';
 
 /** Stands in for deskpal-worker.js: answers requests the way the real one does. */
 class FakeWorker extends EventTarget {
@@ -72,9 +74,60 @@ test('worker client: errors reject the call; a crash rejects everything after', 
 
 test('worker client: a worker that fails to start rejects, so the widget can fall back', async (t) => {
   withFakeWorker(t);
+  const postMessage = FakeWorker.prototype.postMessage;
   FakeWorker.prototype.postMessage = function (this: FakeWorker) {
     queueMicrotask(() => this.crash(''));
   };
-  t.after(() => void delete (FakeWorker.prototype as Partial<FakeWorker>).postMessage);
+  t.after(() => void (FakeWorker.prototype.postMessage = postMessage));
   await assert.rejects(startWorker('missing.js', {}), /model worker failed/);
+});
+
+test('worker client: an on-device writer streams pieces and stops on abort', async (t) => {
+  withFakeWorker(t);
+  const rt = await startWorker('https://site.test/deskpal-worker.js', {});
+  const stops: number[] = [];
+  let finish: (() => void) | null = null;
+  FakeWorker.last.handle = (req, reply) => {
+    if (req.op === 'loadGenerator') return reply({ id: req.id, ok: true, result: { device: 'webgpu', dtype: 'q4f16' } });
+    if (req.op === 'generate') {
+      for (const piece of ['Book ', 'online [1].']) reply({ id: req.id, piece });
+      finish = () => reply({ id: req.id, ok: true });
+      return;
+    }
+    if (req.op === 'stop') {
+      stops.push(req.id);
+      finish?.();
+    }
+    reply({ id: req.id, ok: true });
+  };
+  const gen = await rt.loadGenerator(DEFAULT_GENERATOR);
+  assert.deepEqual([gen.device, gen.dtype], ['webgpu', 'q4f16']);
+  const writer = generatorAdapter(gen);
+  const prompt = buildPrompt('how?', []);
+
+  const ctrl = new AbortController();
+  const pieces: string[] = [];
+  for await (const piece of writer.generate(prompt, ctrl.signal)) {
+    pieces.push(piece);
+    if (pieces.length === 2) ctrl.abort();
+  }
+  assert.deepEqual(pieces, ['Book ', 'online [1].']);
+  assert.equal(stops.length, 1, 'abort tells the worker to stop');
+});
+
+test('on-device writer: a failed generation throws after the pieces so far', async () => {
+  const writer = generatorAdapter({
+    device: 'wasm',
+    dtype: 'q4',
+    run: async (_messages, onPiece) => {
+      onPiece('Half an');
+      throw new Error('out of memory');
+    },
+    stop: () => {},
+  });
+  const pieces: string[] = [];
+  await assert.rejects(async () => {
+    for await (const piece of writer.generate(buildPrompt('q', []), new AbortController().signal)) pieces.push(piece);
+  }, /out of memory/);
+  assert.deepEqual(pieces, ['Half an']);
 });

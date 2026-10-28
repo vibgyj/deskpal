@@ -102,3 +102,13 @@ test('skin voice must be an object', () => {
   assert.deepEqual(validateManifest({ ...manifest, voice: { found: 'Yes!' } }), []);
   assert.ok(validateManifest({ ...manifest, voice: ['nope'] }).includes('voice must be an object of line sets'));
 });
+
+test('behaviour: a long wait on the model turns thinking into serious work', () => {
+  const thinking = step(step(initialState, 'open').state, 'ask').state;
+  assert.equal(thinking.mode, 'thinking');
+  const working = step(thinking, 'busy').state;
+  assert.equal(working.mode, 'working');
+  assert.equal(step(working, 'answer-start').state.mode, 'talking');
+  const downloading = step(thinking, 'download').state;
+  assert.equal(step(downloading, 'busy').state.mode, 'downloading', 'busy only applies while thinking');
+});

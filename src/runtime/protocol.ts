@@ -1,4 +1,6 @@
 // Messages between the widget and deskpal-worker.js.
+import type { GenModel } from '../adapters/browser-generative.ts';
+import type { Message } from '../rag/prompt.ts';
 import type { EmbedModel } from '../rag/embedding.ts';
 import type { ExtractModel } from '../rag/extract.ts';
 import type { RuntimeOptions } from './index.ts';
@@ -9,10 +11,15 @@ export type WorkerRequest = { id: number } & (
   | { op: 'loadExtractive'; model: ExtractModel; minScore: number }
   | { op: 'embed'; text: string }
   | { op: 'extract'; question: string; passages: string[] }
+  | { op: 'loadGenerator'; model: GenModel }
+  | { op: 'generate'; messages: Message[] }
+  | { op: 'stop' }
 );
 
 export type WorkerResponse =
   | { id: number; ok: true; result?: unknown }
   | { id: number; ok: false; error: string }
   /** Download progress for one model file: [key, loaded, total]. */
-  | { id: number; progress: [string, number, number] };
+  | { id: number; progress: [string, number, number] }
+  /** One piece of a generated answer. */
+  | { id: number; piece: string };

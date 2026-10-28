@@ -13,6 +13,7 @@ export type Mode =
   | 'listening'
   | 'downloading'
   | 'thinking'
+  | 'working' // a long wait on the model
   | 'talking';
 
 export type BehaviourEvent =
@@ -23,6 +24,7 @@ export type BehaviourEvent =
   | 'open'
   | 'close'
   | 'ask'
+  | 'busy' // still waiting on the model after a while
   | 'await-user' // waiting on the visitor, e.g. the download prompt
   | 'download'
   | 'answer-start'
@@ -60,6 +62,7 @@ const LOOPS: Record<Mode, string> = {
   listening: 'listening',
   downloading: 'download',
   thinking: 'thinking',
+  working: 'working',
   talking: 'talking',
 };
 
@@ -70,8 +73,10 @@ export function loopFor(mode: Mode): string {
 /** Text alternatives for expressions that carry meaning (SPEC §5). */
 export const ANNOUNCE: Partial<Record<string, string>> = {
   thinking: 'Thinking…',
+  working: 'Still working on it…',
   download: 'Loading the language model…',
   sorry: 'No answer found in the docs.',
+  nope: 'No answer found in the docs.',
   unsure: 'Not sure about this answer.',
   confused: 'Something went wrong.',
   'wave-goodbye': 'Assistant hidden.',
@@ -102,6 +107,8 @@ export function step(s: State, event: BehaviourEvent): Step {
       return to(s.mode === 'dragging' ? 'dragging' : 'idle', undefined, { open: false });
     case 'ask':
       return to('thinking');
+    case 'busy':
+      return s.mode === 'thinking' ? to('working') : { state: s };
     case 'await-user':
       return to('listening');
     case 'download':
@@ -116,7 +123,7 @@ export function step(s: State, event: BehaviourEvent): Step {
     case 'chat':
       return to(resting, 'happy');
     case 'no-answer':
-      return to(resting, 'sorry');
+      return to(resting, 'nope');
     case 'error':
       return to(resting, 'confused');
     case 'drag-start':

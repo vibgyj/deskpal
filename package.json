@@ -21,7 +21,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "skin": "node skins/default/generate.mjs",
+    "skin": "node skins/default/generate.mjs && node skins/pencil/generate.mjs",
     "build": "npm run skin && node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
