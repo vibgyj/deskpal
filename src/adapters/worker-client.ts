@@ -1,3 +1,5 @@
+import type { Message } from '../rag/prompt.ts';
+import type { GenModel, LocalGenerator } from './browser-generative.ts';
 import type { EmbedModel } from '../rag/embedding.ts';
 import type { Extract, ExtractModel } from '../rag/extract.ts';
 import type { Embedder } from '../rag/types.ts';
@@ -6,7 +8,7 @@ import type { WorkerRequest, WorkerResponse } from '../runtime/protocol.ts';
 import type { ModelRuntime } from './runtime-loader.ts';
 import type { ExtractiveAdapter } from './types.ts';
 
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; onProgress?: FileProgress };
+type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; onProgress?: FileProgress; onPiece?: (text: string) => void };
 type Request = WorkerRequest extends infer R ? (R extends { id: number } ? Omit<R, 'id'> : never) : never;
 
 /**
@@ -36,16 +38,17 @@ export async function startWorker(url: string, options: RuntimeOptions): Promise
     const p = pending.get(msg.id);
     if (!p) return;
     if ('progress' in msg) return p.onProgress?.(...msg.progress);
+    if ('piece' in msg) return p.onPiece?.(msg.piece);
     pending.delete(msg.id);
     if (msg.ok) p.resolve(msg.result);
     else p.reject(new Error(msg.error));
   });
 
-  const call = <T>(req: Request, onProgress?: FileProgress): Promise<T> => {
+  const call = <T>(req: Request, onProgress?: FileProgress, onPiece?: (text: string) => void): Promise<T> => {
     if (dead) return Promise.reject(dead);
     const id = nextId++;
     return new Promise<T>((resolve, reject) => {
-      pending.set(id, { resolve: resolve as (v: unknown) => void, reject, onProgress });
+      pending.set(id, { resolve: resolve as (v: unknown) => void, reject, onProgress, onPiece });
       worker.postMessage({ ...req, id });
     });
   };
@@ -68,6 +71,15 @@ export async function startWorker(url: string, options: RuntimeOptions): Promise
           if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
           return found;
         },
+      };
+    },
+    async loadGenerator(model: GenModel, onProgress?: FileProgress): Promise<LocalGenerator> {
+      const { device, dtype } = await call<Pick<LocalGenerator, 'device' | 'dtype'>>({ op: 'loadGenerator', model }, onProgress);
+      return {
+        device,
+        dtype,
+        run: (messages: Message[], onPiece) => call<void>({ op: 'generate', messages }, undefined, onPiece),
+        stop: () => void call({ op: 'stop' }).catch(() => {}),
       };
     },
   };

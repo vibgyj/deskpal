@@ -40,3 +40,5 @@ These add expressions. A skin without them plays the fallback instead:
 - `unsure` (a best-guess answer), falls back to `confused`
 - `blush` (when praised), falls back to `happy`
 - `laugh` (after a joke), falls back to `happy`
+- `nope` (shaking its head when the docs have no answer), falls back to `sorry`
+- `working` (a loop, when the model takes more than 1.5 seconds), falls back to `thinking`

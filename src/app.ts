@@ -1,4 +1,5 @@
 import { createGenerativeAdapter, type ExtractiveAdapter, type GenerativeAdapter } from './adapters/index.ts';
+import { DEFAULT_GENERATOR, generatorAdapter, type GenModel } from './adapters/browser-generative.ts';
 import { RUNTIME_DOWNLOAD_MB, startRuntime } from './adapters/runtime-loader.ts';
 import { ANNOUNCE, initialState, loopFor, step, type BehaviourEvent, type State } from './core/behaviour.ts';
 import type { DeskpalConfig } from './core/config.ts';
@@ -29,6 +30,8 @@ const SNIPPET_CHARS = 220;
 const QUOTE_CONTEXT = 140;
 /** Answers quicker than this never show a thinking line. */
 const THINKING_DELAY_MS = 400;
+/** From here the character gets down to serious work (the `working` loop). */
+const WORKING_DELAY_MS = 1500;
 const DONT_KNOW = /\bi don'?t know\b/i;
 
 export class Deskpal {
@@ -50,6 +53,7 @@ export class Deskpal {
   private runtime: 'idle' | 'loaded' | 'declined' | 'failed' = 'idle';
   private inFlight: AbortController | null = null;
   private thinkingTimer: ReturnType<typeof setTimeout> | undefined;
+  private workingTimer: ReturnType<typeof setTimeout> | undefined;
   private thinkingMsg: HTMLElement | null = null;
   /** The follow-up buttons under the latest answer. */
   private followups: HTMLElement | null = null;
@@ -67,7 +71,7 @@ export class Deskpal {
     this.sounds = new Sounds(this.store.get('sound') ?? false);
     this.speaker = new Speaker(mergeVoice(config.voice), config.name);
     this.generative = createGenerativeAdapter(config);
-    this.dom = buildDom(config.name);
+    this.dom = buildDom(config);
     this.index = this.loadIndex();
     this.wire();
     document.body.append(this.dom.host);
@@ -363,24 +367,38 @@ export class Deskpal {
     }
   }
 
-  /** After THINKING_DELAY_MS, a `thinking` line, until the next bot message replaces it. */
+  /**
+   * After THINKING_DELAY_MS, a `thinking` line, until the next bot message
+   * replaces it; after WORKING_DELAY_MS, the `working` loop.
+   */
   private startThinking(): void {
     this.stopThinking();
     this.thinkingTimer = setTimeout(() => {
       this.thinkingMsg = this.addMessage('note', this.speaker.say('thinking'));
       this.thinkingMsg.classList.add('thinking');
+      // After the line, since adding a message stops the thinking timers.
+      this.workingTimer = setTimeout(() => void this.dispatch('busy'), WORKING_DELAY_MS - THINKING_DELAY_MS);
     }, THINKING_DELAY_MS);
   }
 
   private stopThinking(): void {
     clearTimeout(this.thinkingTimer);
+    clearTimeout(this.workingTimer);
     this.thinkingMsg?.remove();
     this.thinkingMsg = null;
   }
 
-  /** The runtime is needed for the `browser` adapter, or to embed queries for an index with vectors. */
+  /** The runtime is needed for the on-device adapters, or to embed queries for an index with vectors. */
   private wantsRuntime(index: DeskpalIndex): boolean {
-    return this.config.adapter === 'browser' || this.hasUsableVectors(index);
+    return this.onDevice() || this.hasUsableVectors(index);
+  }
+
+  private onDevice(): boolean {
+    return this.config.adapter === 'browser' || this.config.adapter === 'browser-generative';
+  }
+
+  private generatorModel(): GenModel {
+    return this.config.model ? { ...DEFAULT_GENERATOR, id: this.config.model } : DEFAULT_GENERATOR;
   }
 
   /** The one-time download prompt (SPEC §4). The answer is remembered per site. */
@@ -388,7 +406,7 @@ export class Deskpal {
     const saved = this.store.get('download');
     if (saved) return Promise.resolve(saved === 'yes');
     const mb = this.expectedDownloadMB(index) + RUNTIME_DOWNLOAD_MB;
-    const privacy = this.config.adapter === 'browser' ? ' Everything then runs on your device.' : '';
+    const privacy = this.onDevice() ? ' Everything then runs on your device.' : '';
     const msg = this.addMessage('bot', `To answer properly I need to download about ${Math.round(mb / 10) * 10} MB, once. It stays in your browser's cache.${privacy}`);
     const choices = document.createElement('div');
     choices.className = 'choices';
@@ -417,7 +435,8 @@ export class Deskpal {
   }
 
   private expectedDownloadMB(index: DeskpalIndex): number {
-    return (this.hasUsableVectors(index) ? DEFAULT_EMBEDDING.sizeMB : 0) + (this.config.adapter === 'browser' ? DEFAULT_EXTRACTIVE.sizeMB : 0);
+    const answers = { browser: DEFAULT_EXTRACTIVE.sizeMB, 'browser-generative': this.generatorModel().sizeMB }[this.config.adapter as string] ?? 0;
+    return (this.hasUsableVectors(index) ? DEFAULT_EMBEDDING.sizeMB : 0) + answers;
   }
 
   /** Loads the runtime and the models this page needs, with the progress bar and `download` animation. */
@@ -439,6 +458,13 @@ export class Deskpal {
         this.vectorSearcher = new Searcher(index, this.embedder);
       }
       if (this.config.adapter === 'browser') this.extractive = await rt.loadExtractive(DEFAULT_EXTRACTIVE, this.config.minAnswerScore, progress.update);
+      if (this.config.adapter === 'browser-generative') {
+        const model = this.generatorModel();
+        const generator = await rt.loadGenerator(model, progress.update);
+        console.info(`deskpal: ${model.id} runs on ${generator.device} (${generator.dtype}), in the ${rt.where === 'worker' ? 'model worker' : 'page'}.`);
+        this.generative = generatorAdapter(generator);
+        this.generativeReady = true;
+      }
       this.runtime = 'loaded';
     } catch (err) {
       console.error(err);
@@ -669,7 +695,7 @@ export class Deskpal {
   private appendSources(msg: HTMLElement, hits: Hit[], withSnippets: boolean, label?: string): void {
     if (label) {
       const heading = document.createElement('div');
-      heading.className = 'snippet';
+      heading.className = 'snippet sources-label';
       heading.textContent = label;
       msg.append(heading);
     }

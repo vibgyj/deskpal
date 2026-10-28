@@ -9,10 +9,26 @@ export function tokenize(text: string): string[] {
   return text.toLowerCase().match(/[\p{L}\p{N}]+(?:[-_.][\p{L}\p{N}]+)*/gu) ?? [];
 }
 
-/** Folds simple plurals so "needs" matches "need". Deliberately timid. */
-function stem(t: string): string {
+/**
+ * Words a visitor uses for the same thing the docs call something else, folded
+ * to one term. Only money so far: "how much does it cost" against "Pricing".
+ */
+const SAME = new Map(['cost', 'costs', 'costing', 'fee', 'fees', 'charge', 'charges', 'charged', 'expensive', 'cheap', 'cheaper', 'afford', 'affordable'].map((w) => [w, 'price']));
+
+/**
+ * Folds plurals and -ing/-ed so "needs" matches "need" and "pricing" matches
+ * "price". Deliberately timid: a missed match only costs keyword score, since
+ * vectors catch meaning.
+ */
+export function stem(word: string): string {
+  let t = SAME.get(word) ?? word;
   if (t.length > 4 && t.endsWith('ies')) return `${t.slice(0, -3)}y`;
-  if (t.length > 3 && t.endsWith('s') && !/(ss|us|is)$/.test(t)) return t.slice(0, -1);
+  if (t.length > 3 && t.endsWith('s') && !/(ss|us|is)$/.test(t)) t = t.slice(0, -1);
+  if (t.length > 5 && t.endsWith('ing')) t = t.slice(0, -3);
+  else if (t.length > 4 && t.endsWith('ed') && !t.endsWith('eed')) t = t.slice(0, -2);
+  // booked → book stays, but stopp(ed) → stop and pric(e) → pric.
+  if (/([^aeioulsz])\1$/.test(t)) t = t.slice(0, -1);
+  if (t.length > 3 && t.endsWith('e') && !t.endsWith('ee')) t = t.slice(0, -1);
   return t;
 }
 

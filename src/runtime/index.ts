@@ -1,7 +1,8 @@
 // The lazily loaded inference runtime (dist/deskpal-runtime.js). The widget
 // imports it by URL on the first question, after the visitor agrees to the
 // download, so pages that never ask never load transformers.js (SPEC §1, §4).
-import { env, pipeline } from '@huggingface/transformers';
+import { env, InterruptableStoppingCriteria, pipeline, TextStreamer } from '@huggingface/transformers';
+import type { GenModel, LocalGenerator } from '../adapters/browser-generative.ts';
 import type { ExtractiveAdapter } from '../adapters/types.ts';
 import { embedAll, queryText, type EmbedModel, type Extractor } from '../rag/embedding.ts';
 import { joinPassages, toExtract, type ExtractModel } from '../rag/extract.ts';
@@ -70,4 +71,48 @@ export async function loadExtractive(model: ExtractModel, minScore: number, onPr
       return found && found.score >= minScore ? found : null;
     },
   };
+}
+
+/** WebGPU first when the device has a usable GPU, then WASM on the CPU. */
+async function devices(model: GenModel): Promise<{ device: 'webgpu' | 'wasm'; dtype: string }[]> {
+  const out: { device: 'webgpu' | 'wasm'; dtype: string }[] = [];
+  const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
+  const adapter = await gpu?.requestAdapter().catch(() => null);
+  if (adapter) out.push({ device: 'webgpu', dtype: adapter.features.has('shader-f16') ? model.dtype.webgpu : model.dtype.webgpuNoF16 });
+  out.push({ device: 'wasm', dtype: model.dtype.wasm });
+  return out;
+}
+
+export async function loadGenerator(model: GenModel, onProgress?: FileProgress): Promise<LocalGenerator> {
+  configure();
+  let lastError: unknown;
+  for (const { device, dtype } of await devices(model)) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const generator: any = await pipeline('text-generation', model.id, {
+        device,
+        dtype: dtype as never,
+        progress_callback: progressCallback(model.id, onProgress) as never,
+      });
+      const stopper = new InterruptableStoppingCriteria();
+      let running: Promise<void> = Promise.resolve();
+      return {
+        device,
+        dtype,
+        async run(messages, onPiece) {
+          stopper.interrupt();
+          await running.catch(() => {});
+          stopper.reset();
+          const streamer = new TextStreamer(generator.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onPiece });
+          running = generator(messages, { max_new_tokens: model.maxNewTokens, do_sample: false, repetition_penalty: 1.05, streamer, stopping_criteria: stopper });
+          await running;
+        },
+        stop: () => stopper.interrupt(),
+      };
+    } catch (err) {
+      console.warn(`deskpal: could not load ${model.id} on ${device}`, err);
+      lastError = err;
+    }
+  }
+  throw lastError;
 }

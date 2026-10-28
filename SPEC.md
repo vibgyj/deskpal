@@ -161,10 +161,14 @@ supported:
   returning text, a promise of text or an `AsyncIterable<string>`. The prompt
   carries the chat messages plus the raw question and sources. This covers any
   other API and the site's own backend and auth.
-- **`browser-generative`** (experimental, planned): a generative model in the
-  browser on WebGPU. Candidate: Gemma 3 1B, the only model of 1B or more that
-  loaded on a phone in testing (§11.5). Offered only after checking the
-  device's WebGPU limits, and only as an opt-in.
+- **`browser-generative`** (experimental, built): a generative model on the
+  visitor's device, in the model worker. Default Gemma 3 1B
+  (`onnx-community/gemma-3-1b-it-ONNX`), the only model of 1B or more that
+  loaded on a phone in testing (§11.5); `model` takes another ONNX model id.
+  WebGPU (q4f16, or q4 without shader-f16) when the device has a usable GPU,
+  otherwise WASM (q4), which is very slow. ~800 MB, behind the same download
+  prompt. Opt-in only; checking the device's WebGPU limits before offering it is
+  still to do.
 - **Built-in browser models** (to investigate, §11.8): where the browser
   provides an on-device model (e.g. Chrome's Prompt API), use it with no
   download from the site.
@@ -199,7 +203,8 @@ skin and sets `skin`.
   `drag` (held), `land` (dropped), `hide`, `appear`, `download` (model loading).
 - **Optional animations**, each with a fallback the widget plays when a skin
   lacks it: `wave` (→ `greet`), `unsure` (→ `confused`), `blush` (→ `happy`),
-  `laugh` (→ `happy`). Optional animations let new expressions arrive without
+  `laugh` (→ `happy`), `working` (→ `thinking`: a long wait on the model,
+  from 1.5 s), `nope` (→ `sorry`: a head shake when the docs have no answer). Optional animations let new expressions arrive without
   breaking existing skins.
 - **Skins:** the default mascot is drawn by us (generated from code into sprite
   sheets). Custom characters drop in with their own manifest. The skin format,

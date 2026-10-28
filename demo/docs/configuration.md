@@ -12,10 +12,12 @@ Add `data-auto="false"` to the script tag to stop it booting on its own.
 
 - `index`: URL of the search index built by `deskpal build-index`.
 - `adapter`: how answers are made: `browser` (default, quoted from your docs on
-  the visitor's device), `openai-compatible`, `anthropic`, `custom` or `none`.
-  See Models.
+  the visitor's device), `browser-generative` (experimental: written by a
+  ~800 MB model on the visitor's device, best with a GPU), `openai-compatible`,
+  `anthropic`, `custom` or `none`. See Models.
 - `endpoint`, `model`: where the `openai-compatible` or `anthropic` adapter
-  sends questions, and which model it asks for.
+  sends questions, and which model it asks for. For `browser-generative`,
+  `model` is an ONNX model id on Hugging Face (default Gemma 3 1B).
 - `apiKey`: a bearer token for `openai-compatible`. Visitors can read it, so
   use it only with a local server or your own proxy.
 - `generate`: the function the `custom` adapter calls (`init()` only).
@@ -34,6 +36,13 @@ Add `data-auto="false"` to the script tag to stop it booting on its own.
 - `tip`: one unprompted tip shown per page view. Leave it out for no tip.
 - `tipDelay`: milliseconds before the tip appears (default 20000).
 - `position`: starting corner: `bottom-right`, `bottom-left`, `top-right` or `top-left`.
+- `theme`: the speech bubble's look: `modern` (default: clean and rounded) or
+  `retro` (ink outlines and hard drop shadows, to match the 90s character).
+- `fontSize`: text size in the bubble, in CSS pixels. Defaults to 15 for
+  `modern` and 13 for `retro`.
+- `accent`: colour of links, buttons and the visitor's questions, such as
+  `#0a7d5a` or `rgb(10 125 90)`. With a hex colour, the text on it turns dark
+  or light to stay readable. See [Look](#look) for more control.
 - `scale`: pixel scale of the character (default 3).
 - `topK`: how many doc sections to use per answer (default 4).
 - `minScore`: relevance needed for a section to count, from 0 to 1. The default
@@ -45,6 +54,30 @@ Add `data-auto="false"` to the script tag to stop it booting on its own.
 - `worker`: run the answer models in a Web Worker so the page and the character
   stay smooth (default `true`). It needs `deskpal-worker.js` on your own origin;
   otherwise, or with `data-worker="false"`, they run on the page's main thread.
+
+## Look
+
+Beyond `theme`, `fontSize` and `accent`, your own stylesheet can set these
+CSS variables on `[data-deskpal]`. They reach inside the widget's shadow root,
+and nothing else from your page does.
+
+```css
+[data-deskpal] {
+  --dp-font: "Inter", system-ui, sans-serif;  /* a font your page already loads */
+  --dp-radius: 12px;                         /* corners of the bubble */
+  --dp-accent: #0a7d5a;
+  --dp-on-accent: #ffffff;                   /* text on the accent colour */
+  --dp-ink: #1d2030;                         /* text */
+  --dp-muted: #6a6f82;                       /* secondary text */
+  --dp-bg: #ffffff;                          /* the bubble */
+  --dp-surface: #f1f2f6;                     /* answers and the input box */
+  --dp-line: #e3e5ec;                        /* dividers */
+}
+```
+
+The widget switches to its own dark colours when the visitor's system is in
+dark mode. If you set colours, set dark ones too, inside
+`@media (prefers-color-scheme: dark)`.
 
 ## Personality
 

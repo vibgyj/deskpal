@@ -30,6 +30,9 @@ test('int8 quantisation round-trips within a step', () => {
 test('terms drop stopwords and split compound tokens', () => {
   assert.deepEqual(terms('How do I set the data-index?'), ['set', 'data-index', 'data', 'index']);
   assert.deepEqual(terms('skins needs policies status'), ['skin', 'need', 'policy', 'status']);
+  // Endings and price words fold together, so a question meets the docs' wording.
+  assert.deepEqual(terms('pricing prices price cost fees'), ['pric', 'pric', 'pric', 'pric', 'pric']);
+  assert.deepEqual(terms('booked booking books stopped rescheduling'), ['book', 'book', 'book', 'stop', 'reschedul']);
 });
 
 test('keyword search ranks the matching chunk first and gates on score', async () => {
