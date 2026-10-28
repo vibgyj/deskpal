@@ -1,0 +1,40 @@
+{
+  "name": "deskpal",
+  "version": "0.1.0",
+  "description": "A drop-in, 90s-style animated desk assistant that answers questions from your docs.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/deskpal.mjs",
+  "module": "./dist/deskpal.mjs",
+  "exports": {
+    ".": "./dist/deskpal.mjs",
+    "./iife": "./dist/deskpal.js"
+  },
+  "bin": {
+    "deskpal": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "skins"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "skin": "node skins/default/generate.mjs",
+    "build": "npm run skin && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "spike": "npm run build && node dist/cli.mjs build-index demo/docs -o demo/deskpal-index.json --base-url /docs/ --md-ext \"\" && node scripts/build-spike.mjs && node scripts/serve.mjs",
+    "spike:vectors": "node scripts/spike-vectors.ts",
+    "demo": "npm run build && node dist/cli.mjs build-index demo/docs -o demo/deskpal-index.json --base-url /docs/ --md-ext \"\" && node scripts/serve.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1"
+  }
+}

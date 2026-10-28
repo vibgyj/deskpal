@@ -1,0 +1,264 @@
+{
+  "name": "placeholder",
+  "frameSize": [
+    32,
+    32
+  ],
+  "sheets": [
+    "sheet.svg"
+  ],
+  "animations": {
+    "idle": {
+      "frames": [
+        0,
+        1
+      ],
+      "fps": 2,
+      "loop": true
+    },
+    "idle-fidget": {
+      "frames": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "fps": 6,
+      "loop": false,
+      "next": "idle"
+    },
+    "bored": {
+      "frames": [
+        9,
+        10
+      ],
+      "fps": 2,
+      "loop": true
+    },
+    "sleep": {
+      "frames": [
+        11,
+        12,
+        13
+      ],
+      "fps": 2,
+      "loop": true
+    },
+    "wake": {
+      "frames": [
+        14,
+        15,
+        16,
+        17,
+        18
+      ],
+      "fps": 8,
+      "loop": false,
+      "still": 16
+    },
+    "greet": {
+      "frames": [
+        19,
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "fps": 8,
+      "loop": false,
+      "still": 21
+    },
+    "wave-goodbye": {
+      "frames": [
+        25,
+        26,
+        27,
+        28
+      ],
+      "fps": 8,
+      "loop": false,
+      "still": 26
+    },
+    "listening": {
+      "frames": [
+        29,
+        30
+      ],
+      "fps": 2,
+      "loop": true
+    },
+    "thinking": {
+      "frames": [
+        31,
+        32,
+        33,
+        34
+      ],
+      "fps": 4,
+      "loop": true
+    },
+    "talking": {
+      "frames": [
+        35,
+        36,
+        37,
+        38
+      ],
+      "fps": 8,
+      "loop": true
+    },
+    "happy": {
+      "frames": [
+        39,
+        40,
+        41,
+        42,
+        43
+      ],
+      "fps": 8,
+      "loop": false,
+      "still": 41
+    },
+    "confused": {
+      "frames": [
+        44,
+        45,
+        46,
+        47
+      ],
+      "fps": 4,
+      "loop": false,
+      "still": 45
+    },
+    "sorry": {
+      "frames": [
+        48,
+        49,
+        50,
+        51
+      ],
+      "fps": 4,
+      "loop": false,
+      "still": 49
+    },
+    "pointing": {
+      "frames": [
+        52,
+        53,
+        54,
+        55,
+        56,
+        57
+      ],
+      "fps": 6,
+      "loop": false,
+      "still": 54
+    },
+    "drag": {
+      "frames": [
+        58,
+        59
+      ],
+      "fps": 4,
+      "loop": true
+    },
+    "land": {
+      "frames": [
+        60,
+        61,
+        62,
+        63
+      ],
+      "fps": 10,
+      "loop": false,
+      "still": 61
+    },
+    "hide": {
+      "frames": [
+        64,
+        65,
+        66,
+        67,
+        68
+      ],
+      "fps": 10,
+      "loop": false,
+      "still": 68
+    },
+    "appear": {
+      "frames": [
+        69,
+        70,
+        71,
+        72,
+        73
+      ],
+      "fps": 10,
+      "loop": false,
+      "next": "idle",
+      "still": 73
+    },
+    "wave": {
+      "frames": [
+        74,
+        75,
+        76,
+        77,
+        78,
+        79
+      ],
+      "fps": 8,
+      "loop": false,
+      "still": 75
+    },
+    "unsure": {
+      "frames": [
+        80,
+        81,
+        82,
+        83
+      ],
+      "fps": 4,
+      "loop": false,
+      "still": 82
+    },
+    "blush": {
+      "frames": [
+        84,
+        85,
+        86,
+        87
+      ],
+      "fps": 6,
+      "loop": false,
+      "still": 86
+    },
+    "laugh": {
+      "frames": [
+        88,
+        89,
+        90,
+        91,
+        92,
+        93
+      ],
+      "fps": 10,
+      "loop": false,
+      "still": 89
+    },
+    "download": {
+      "frames": [
+        94,
+        95,
+        96,
+        97
+      ],
+      "fps": 4,
+      "loop": true
+    }
+  }
+}

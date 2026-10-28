@@ -1,0 +1,7 @@
+node_modules/
+dist/
+demo/deskpal-index.json
+demo/spike/spike.js*
+demo/spike/runtime.js*
+demo/spike/ort/
+demo/spike/node-vectors.json

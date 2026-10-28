@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>deskpal demo</title>
+  <link rel="stylesheet" href="demo.css">
+  <script type="application/json" id="deskpal-config">
+    {
+      "index": "/deskpal-index.json",
+      "tip": "Psst. I've read the docs, so you don't have to. Click me!",
+      "tipDelay": 8000
+    }
+  </script>
+  <script defer src="/deskpal.js"></script>
+</head>
+<body>
+  <main>
+    <h1>deskpal demo</h1>
+    <p>This page is served under a strict Content Security Policy with no inline
+      scripts. The assistant in the corner boots from the JSON block in the head and
+      answers from the docs in <code>demo/docs/</code>.</p>
+    <p>Try asking:</p>
+    <ul>
+      <li>How do I add deskpal to my site?</li>
+      <li>What CSP does it need?</li>
+      <li>Can I use my own character?</li>
+      <li>How do I use Ollama?</li>
+      <li>What's the capital of France? <small>(it shouldn't know)</small></li>
+    </ul>
+    <p>Drag the character around, leave it alone for a while, or hide it. It remembers
+      where you put it.</p>
+    <p>On the first question it asks to download about 110 MB, once. After that it
+      answers on your device by quoting the docs, with the answer highlighted. Say no
+      and it shows the matching sections instead.</p>
+    <p>To try written answers from a model you run, start Ollama and set
+      <code>"adapter": "openai-compatible", "endpoint": "http://localhost:11434/v1",
+      "model": "qwen3:0.6b"</code> in the config block.</p>
+  </main>
+</body>
+</html>
