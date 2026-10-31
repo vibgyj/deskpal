@@ -256,9 +256,9 @@ test('embed: while one runs, a full queue answers 503 and answers still stream',
   const busy = await start({ LIMIT_EMBED_PER_MIN: '1000', EMBED_QUEUE: '1' });
   const embed = (ip, texts) => fetch(`${busy}/embed`, { method: 'POST', headers: { 'x-forwarded-for': ip }, body: JSON.stringify({ texts }) });
   await (await embed('10.1.0.1', ['warm up'])).arrayBuffer();
-  // A full batch of long texts keeps the model busy for a while.
-  const heavy = embed('10.1.0.2', Array.from({ length: 32 }, (_, j) => `question ${j} `.repeat(60).slice(0, 600)));
-  await new Promise((r) => setTimeout(r, 300));
+  // The largest batch allowed keeps the model busy for a few seconds even on fast CPUs.
+  const heavy = embed('10.1.0.2', Array.from({ length: 32 }, (_, j) => `question ${j} `.repeat(100).slice(0, 1000)));
+  await new Promise((r) => setTimeout(r, 100));
 
   const started = Date.now();
   const refused = await embed('10.1.0.3', ['one more']);
