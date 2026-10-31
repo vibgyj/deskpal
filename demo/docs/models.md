@@ -37,6 +37,24 @@ not private by default. Do not put a secret API key in the page: every visitor
 can read it. For a cloud model, point `endpoint` at your own proxy that adds the
 key on the server.
 
+## The reference proxy
+
+deskpal comes with a proxy for your server, in Node, Python and PHP
+(`proxy/` in the package; see its README). It serves all three things a
+widget may need from your server: question embeddings (`embedEndpoint`), an
+OpenAI-compatible writer, and Claude. It keeps the key on the server and
+picks the model and the answer length. Requests from other sites are
+refused, and each visitor is rate-limited, with a daily cap for the whole
+site, so the endpoint can't run up your bill:
+
+```json
+{
+  "embedEndpoint": "/api/deskpal/embed",
+  "adapter": "openai-compatible",
+  "endpoint": "/api/deskpal/llm"
+}
+```
+
 ## Embedding questions on your server
 
 To match a question by meaning, deskpal turns it into a vector with the same
@@ -63,8 +81,9 @@ back: one vector per text. Your server applies the model's query prefix, and
 with `embedAll(extractor, model, texts.map((t) => queryText(model, t)))` from
 deskpal's `src/rag/embedding.ts` and the vectors match the index exactly.
 
-The questions go to your server, so this is not private in the way on-device
-answers are. Limit the endpoint as you would any public API: cap the text
+The [reference proxy](#the-reference-proxy) does all of this. The questions
+go to your server, so this is not private in the way on-device answers are.
+Limit the endpoint as you would any public API: cap the text
 length and texts per request, rate-limit per visitor, and refuse requests
 whose `Origin` is another site. When the endpoint fails or answers 429,
 deskpal falls back to keyword search for that question.
@@ -113,7 +132,8 @@ export default {
 ```
 
 Anyone can call your proxy, so add rate limiting and check the `Origin` header
-before you rely on it.
+before you rely on it, or use [the reference proxy](#the-reference-proxy),
+which does both.
 
 ## Your own backend
 
