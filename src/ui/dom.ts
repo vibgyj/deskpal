@@ -35,7 +35,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
  */
 export function buildDom(config: Pick<DeskpalConfig, 'name' | 'theme' | 'fontSize' | 'accent'>): WidgetDom {
   const { name } = config;
-  const host = el('div', { className: config.theme === 'retro' ? 'retro' : '' }, { 'data-deskpal': '' });
+  // An attribute only the widget uses: the host sits in the page, whose CSS may style `.retro`.
+  const host = el('div', {}, { 'data-deskpal': '', 'data-deskpal-theme': config.theme ?? 'modern' });
   const css = CSS + configCss(config);
   const root = host.attachShadow({ mode: 'open' });
   if ('adoptedStyleSheets' in root && typeof CSSStyleSheet !== 'undefined' && 'replaceSync' in CSSStyleSheet.prototype) {

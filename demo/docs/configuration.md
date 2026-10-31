@@ -18,9 +18,16 @@ Add `data-auto="false"` to the script tag to stop it booting on its own.
 - `endpoint`, `model`: where the `openai-compatible` or `anthropic` adapter
   sends questions, and which model it asks for. For `browser-generative`,
   `model` is an ONNX model id on Hugging Face (default Gemma 3 1B).
+- `modelSizeMB`, `modelDtype`: for `browser-generative` with your own `model`:
+  its download size in MB, quoted to visitors before they agree to download
+  it (required: without it the default model is used), and the quantisation
+  to load (default `q4`).
 - `apiKey`: a bearer token for `openai-compatible`. Visitors can read it, so
   use it only with a local server or your own proxy.
 - `generate`: the function the `custom` adapter calls (`init()` only).
+- `embedEndpoint`: a URL on your server that embeds questions, so visitors
+  download no embedding model. See
+  [Embedding questions on your server](models.md#embedding-questions-on-your-server).
 - `modelHost`: base URL for self-hosted model files, laid out as
   `{modelHost}/{model id}/...`. Hugging Face when unset.
 - `runtimeUrl`: URL of `deskpal-runtime.js`. By default it is found next to the
@@ -40,13 +47,15 @@ Add `data-auto="false"` to the script tag to stop it booting on its own.
   `retro` (ink outlines and hard drop shadows, to match the 90s character).
 - `fontSize`: text size in the bubble, in CSS pixels. Defaults to 15 for
   `modern` and 13 for `retro`.
-- `accent`: colour of links, buttons and the visitor's questions, such as
-  `#0a7d5a` or `rgb(10 125 90)`. With a hex colour, the text on it turns dark
-  or light to stay readable. See [Look](#look) for more control.
+- `accent`: colour of links, buttons and the visitor's questions, as hex such
+  as `#0a7d5a`. The text on it turns dark or light to stay readable. See
+  [Look](#look) for more control.
 - `scale`: pixel scale of the character (default 3).
-- `topK`: how many doc sections to use per answer (default 4).
+- `topK`: how many doc sections to use per answer (default 6 for
+  `openai-compatible`, `anthropic` and `custom`, 4 otherwise).
 - `minScore`: relevance needed for a section to count, from 0 to 1. The default
-  is 0.45 when the index has embeddings and 0.3 when it is keyword-only.
+  suits the index's model: 0.5 for bge-small, 0.475 for bge-base, and 0.3 for a
+  keyword-only index.
 - `minAnswerScore`: how confident the answer model must be to pick out an
   answer (default 0.1). Below that it shows the matching sections instead.
 - `sureAnswerScore`: how confident it must be to present the answer as sure,
@@ -103,5 +112,6 @@ A skin can bring its own voice too; your config wins over the skin's.
 
 Where you drag the character, whether you hid it, whether you dismissed the
 tip, whether sound is on and your answer to the download question are
-remembered per site in `localStorage`. If
+remembered per site in `localStorage`. A yes covers the size it was given
+for: if the site later needs a bigger download, it asks again. If
 storage is blocked, they last for the page view only.

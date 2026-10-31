@@ -110,7 +110,8 @@ test('look options: theme, font size and an accent that cannot inject CSS', (t) 
   assert.deepEqual(ok, { theme: 'retro', fontSize: 16, accent: '#0a7d5a' });
   assert.equal(resolveConfig({}).theme, 'modern');
   assert.deepEqual(fromJson('{"theme":"neon","accent":"red; } :host { display: none"}'), {});
-  assert.equal(fromJson('{"accent":"rgb(10 125 90)"}').accent, 'rgb(10 125 90)');
+  // Hex only, so the text colour on it can be worked out.
+  for (const accent of ['rgb(10 125 90)', 'navy', '#12345']) assert.deepEqual(fromJson(JSON.stringify({ accent })), {});
   assert.match(configCss(ok), /--dp-font-size: 16px; --dp-accent: #0a7d5a; --dp-on-accent: #ffffff;/);
   assert.match(configCss({ accent: '#ffd23f' }), /--dp-on-accent: #0f1220/);
   assert.equal(configCss({}), '');

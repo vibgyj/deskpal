@@ -83,10 +83,11 @@ function bagOfWords(text: string): Float32Array {
 
 test('small talk by meaning: nearest example above the threshold, short messages only', async () => {
   let calls = 0;
-  const matcher = new SmallTalkMatcher(async (t) => (calls++, bagOfWords(t)), 0.9);
+  const matcher = new SmallTalkMatcher(async (ts) => (calls++, ts.map(bagOfWords)), 0.9);
   assert.equal(await matcher.match('something funny'), 'joke');
   const examples = calls;
   assert.equal(await matcher.match('install csp'), null);
+  assert.equal(examples, 2, 'the examples in one batch, then the message');
   assert.equal(calls, examples + 1, 'examples are embedded once');
   assert.equal(await matcher.nearest('a very long question that rambles on about thanks and jokes forever'), null);
 });

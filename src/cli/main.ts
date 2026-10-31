@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { DEFAULT_EMBEDDING } from '../rag/embedding.ts';
+import { DEFAULT_EMBEDDING, EMBEDDINGS } from '../rag/embedding.ts';
 import { buildIndex, writeIndex } from './build-index.ts';
 import { nodeEmbedder } from './embed.ts';
 
@@ -13,6 +13,9 @@ Options:
       --md-ext <ext>      Extension Markdown pages are served with (default: .html;
                           pass "" to keep .md)
       --max-chars <n>     Largest chunk in characters (default: 1500)
+      --model <name>      Embedding model: bge-small-en-v1.5 (default, 34 MB for
+                          visitors) or bge-base-en-v1.5 (better ranking, 110 MB;
+                          best with the widget's embedEndpoint)
       --no-embed          Skip embeddings: a keyword-only index, no model download
   -h, --help              Show this help
 `;
@@ -35,6 +38,7 @@ export async function main(argv: string[]): Promise<number> {
       'base-url': { type: 'string', default: '/' },
       'md-ext': { type: 'string', default: '.html' },
       'max-chars': { type: 'string', default: '1500' },
+      model: { type: 'string', default: DEFAULT_EMBEDDING.label },
       'no-embed': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -49,7 +53,12 @@ export async function main(argv: string[]): Promise<number> {
     process.stderr.write(USAGE);
     return 1;
   }
-  const embedding = values['no-embed'] ? undefined : { model: DEFAULT_EMBEDDING, embed: await nodeEmbedder(DEFAULT_EMBEDDING) };
+  const model = EMBEDDINGS.find((m) => m.label === values.model);
+  if (!model) {
+    process.stderr.write(`deskpal: unknown model "${values.model}"; choose ${EMBEDDINGS.map((m) => m.label).join(' or ')}\n`);
+    return 1;
+  }
+  const embedding = values['no-embed'] ? undefined : { model, embed: await nodeEmbedder(model) };
   const index = await buildIndex({ docsDir, baseUrl: values['base-url'], mdExt: values['md-ext'], maxChars, embedding });
   await writeIndex(index, values.out);
   const pages = new Set(index.chunks.map((c) => c.url.split('#')[0])).size;

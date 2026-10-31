@@ -1,6 +1,7 @@
 // Small talk (SPEC §7): greetings, thanks and the like get a reply from the
 // voice instead of a docs search. Phrase patterns work in every tier; with the
 // query embedder loaded, paraphrases are caught by similarity to examples.
+import { DEFAULT_EMBEDDING } from '../rag/embedding.ts';
 import type { Intent } from './voice.ts';
 
 const POLITE = '(?: please| there| again| to you| mate| buddy| pal| friend| lol| haha| :\\))*';
@@ -77,22 +78,23 @@ export const INTENT_EXAMPLES: Record<Intent, string[]> = {
 };
 
 /**
- * Below this cosine similarity (bge-small) to the nearest example, a message
- * isn't small talk. Calibrated 2026-10-25: paraphrases scored 0.76–0.87 and
- * the demo's doc questions at most 0.74. It is only consulted when the docs
- * matched nothing, so a near miss replaces "I don't know", never an answer.
+ * Below this cosine similarity to the nearest example, a message isn't small
+ * talk. Per model (`EmbedModel.smallTalk`); this is bge-small's. It is only
+ * consulted when the docs matched nothing, so a near miss replaces "I don't
+ * know", never an answer.
  */
-export const SIMILARITY_THRESHOLD = 0.75;
+export const SIMILARITY_THRESHOLD = DEFAULT_EMBEDDING.smallTalk;
 /** Longer messages are questions, however chatty. */
 export const MAX_SMALL_TALK_WORDS = 8;
 
 /** Similarity matching with the query embedder. Example vectors are computed once, on first use. */
 export class SmallTalkMatcher {
-  private embed: (text: string) => Promise<Float32Array>;
+  /** Embeds several texts in one go, so a server embedder takes the examples in one request. */
+  private embed: (texts: string[]) => Promise<Float32Array[]>;
   private examples: Promise<{ intent: Intent; v: Float32Array }[]> | null = null;
   private threshold: number;
 
-  constructor(embed: (text: string) => Promise<Float32Array>, threshold = SIMILARITY_THRESHOLD) {
+  constructor(embed: (texts: string[]) => Promise<Float32Array[]>, threshold = SIMILARITY_THRESHOLD) {
     this.embed = embed;
     this.threshold = threshold;
   }
@@ -102,11 +104,11 @@ export class SmallTalkMatcher {
     if (normalize(text).split(' ').length > MAX_SMALL_TALK_WORDS) return null;
     this.examples ??= this.embedExamples();
     const examples = await this.examples;
-    const q = await this.embed(text);
+    const [q] = await this.embed([text]);
     let best: { intent: Intent; score: number } | null = null;
     for (const { intent, v } of examples) {
       let score = 0;
-      for (let i = 0; i < v.length; i++) score += v[i]! * q[i]!;
+      for (let i = 0; i < v.length; i++) score += v[i]! * q![i]!;
       if (!best || score > best.score) best = { intent, score };
     }
     return best;
@@ -118,10 +120,8 @@ export class SmallTalkMatcher {
   }
 
   private async embedExamples(): Promise<{ intent: Intent; v: Float32Array }[]> {
-    const out: { intent: Intent; v: Float32Array }[] = [];
-    for (const [intent, phrases] of Object.entries(INTENT_EXAMPLES) as [Intent, string[]][]) {
-      for (const p of phrases) out.push({ intent, v: await this.embed(p) });
-    }
-    return out;
+    const examples = (Object.entries(INTENT_EXAMPLES) as [Intent, string[]][]).flatMap(([intent, phrases]) => phrases.map((p) => ({ intent, p })));
+    const vectors = await this.embed(examples.map((e) => e.p));
+    return examples.map(({ intent }, i) => ({ intent, v: vectors[i]! }));
   }
 }

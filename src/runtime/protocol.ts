@@ -13,7 +13,8 @@ export type WorkerRequest = { id: number } & (
   | { op: 'extract'; question: string; passages: string[] }
   | { op: 'loadGenerator'; model: GenModel }
   | { op: 'generate'; messages: Message[] }
-  | { op: 'stop' }
+  /** Stops the generation started by request `target`. */
+  | { op: 'stop'; target: number }
 );
 
 export type WorkerResponse =

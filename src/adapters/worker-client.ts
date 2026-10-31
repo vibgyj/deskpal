@@ -44,9 +44,11 @@ export async function startWorker(url: string, options: RuntimeOptions): Promise
     else p.reject(new Error(msg.error));
   });
 
-  const call = <T>(req: Request, onProgress?: FileProgress, onPiece?: (text: string) => void): Promise<T> => {
+  /** Sends a request; `onId` learns its id, for a later `stop`. */
+  const call = <T>(req: Request, onProgress?: FileProgress, onPiece?: (text: string) => void, onId?: (id: number) => void): Promise<T> => {
     if (dead) return Promise.reject(dead);
     const id = nextId++;
+    onId?.(id);
     return new Promise<T>((resolve, reject) => {
       pending.set(id, { resolve: resolve as (v: unknown) => void, reject, onProgress, onPiece });
       worker.postMessage({ ...req, id });
@@ -78,8 +80,17 @@ export async function startWorker(url: string, options: RuntimeOptions): Promise
       return {
         device,
         dtype,
-        run: (messages: Message[], onPiece) => call<void>({ op: 'generate', messages }, undefined, onPiece),
-        stop: () => void call({ op: 'stop' }).catch(() => {}),
+        async run(messages: Message[], onPiece, signal) {
+          if (signal.aborted) return;
+          let id = 0;
+          const stop = () => void call({ op: 'stop', target: id }).catch(() => {});
+          signal.addEventListener('abort', stop);
+          try {
+            await call<void>({ op: 'generate', messages }, undefined, onPiece, (n) => (id = n));
+          } finally {
+            signal.removeEventListener('abort', stop);
+          }
+        },
       };
     },
   };

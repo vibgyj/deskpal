@@ -63,15 +63,24 @@ change it before changing behaviour.
   - **Embedding model: `Xenova/bge-small-en-v1.5`** (int8, 34 MB, MIT, CLS
     pooling, BGE query prefix). Chosen 2026-10-25: best retrieval of the three
     candidates, and browser vectors match Node's exactly.
+  - `--model bge-base-en-v1.5` (768 dims, 110 MB) ranks better: a right
+    section in the top 4 for 97% and 100% of the eval's questions, against
+    89% for bge-small. Three times the download and the time per question, so
+    it is opt-in, and best with `embedEndpoint` (below).
   - Vectors stored quantised (int8, base64) to keep the file small.
 - Browser: loads the index as a static file, embeds the query, and ranks by
-  0.7 × cosine + 0.3 × keyword (BM25-lite) score, which helps with names and
-  exact terms. Without vectors (keyword-only index, or download declined) it
+  cosine and keyword (BM25-lite) score combined: 0.8/0.2 for bge-small,
+  0.9/0.1 for bge-base. The keyword share helps with names and exact terms.
+  With `embedEndpoint` the site's server embeds the query instead (same code
+  path, `src/rag/embedding.ts`), so visitors download no model; if it fails or
+  rate-limits, that question falls back to keyword search. Without vectors (keyword-only index, or download declined) it
   ranks by keyword score alone.
-- **Relevance cutoff:** below `minScore` (default 0.45 with vectors, 0.3
-  keyword-only) nothing counts, and the answer is "I don't know that one". In
-  testing this alone rejected every off-topic question, so **every answer
-  path, including generated ones, sits behind it.**
+- **Relevance cutoff:** below `minScore` (default per model: 0.5 for
+  bge-small, 0.475 for bge-base; 0.3 keyword-only) nothing counts, and the answer is "I don't know that one". In
+  a labelled eval on two sites (54 real and 33 off-topic questions) it
+  rejected every off-topic question but one borderline case the docs do
+  touch on, so **every answer path, including generated ones, sits behind
+  it.** The weights and cutoff came from that eval (2026-10-31).
 - If no model is available or allowed, the answer is the best-matching
   snippets themselves, with links. That is still useful.
 

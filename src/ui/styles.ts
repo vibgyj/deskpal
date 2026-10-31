@@ -147,7 +147,7 @@ a { color: var(--dp-accent); text-underline-offset: 2px; }
 }
 
 /* theme: "retro", the original 90s look: ink outlines and hard drop shadows. */
-:host(.retro) {
+:host([data-deskpal-theme="retro"]) {
   --dp-font: Tahoma, Verdana, "Segoe UI", system-ui, sans-serif;
   --dp-font-size: 13px;
   --dp-radius: 10px;
@@ -155,38 +155,37 @@ a { color: var(--dp-accent); text-underline-offset: 2px; }
   --dp-bg: #fffbe6;
   --dp-surface: #ffffff;
   --dp-line: #2b2b3a;
-  --dp-user: #e8eefc;
   --dp-hard: #2b2b3a;
 }
 @media (prefers-color-scheme: dark) {
-  :host(.retro) {
+  :host([data-deskpal-theme="retro"]) {
     --dp-ink: #ecebf5;
     --dp-bg: #26263a;
     --dp-surface: #1c1c2b;
     --dp-line: #ecebf5;
-    --dp-user: #33395a;
     --dp-hard: #000000;
-    --dp-on-accent: #ffffff;
   }
 }
-:host(.retro) .bubble, :host(.retro) .tip { border: 2px solid var(--dp-ink); box-shadow: 4px 4px 0 var(--dp-hard); }
-:host(.retro) .header, :host(.retro) .ask { border-color: var(--dp-ink); border-width: 2px; }
-:host(.retro) .title { font-size: 1em; font-weight: bold; }
-:host(.retro) .icon { border: 1px solid var(--dp-ink); border-radius: 4px; background: var(--dp-surface); color: inherit; font-size: inherit; }
-:host(.retro) .msg { border-radius: 8px; padding: 6px 9px; }
-:host(.retro) .msg.user { background: var(--dp-user); color: inherit; }
-:host(.retro) .msg.bot { border: 1px solid var(--dp-ink); }
-:host(.retro) .msg.note { font-size: 1em; font-style: italic; padding: 6px 9px; }
-:host(.retro) .msg.thinking { opacity: 1; border-style: dashed; }
-:host(.retro) .ask input { background: var(--dp-surface); border: 1px solid var(--dp-ink); border-radius: 4px; }
-:host(.retro) .ask button, :host(.retro) .choices button, :host(.retro) .restore {
+:host([data-deskpal-theme="retro"]) .bubble, :host([data-deskpal-theme="retro"]) .tip { border: 2px solid var(--dp-ink); box-shadow: 4px 4px 0 var(--dp-hard); }
+:host([data-deskpal-theme="retro"]) .header, :host([data-deskpal-theme="retro"]) .ask { border-color: var(--dp-ink); border-width: 2px; }
+:host([data-deskpal-theme="retro"]) .title { font-size: 1em; font-weight: bold; }
+:host([data-deskpal-theme="retro"]) .icon { border: 1px solid var(--dp-ink); border-radius: 4px; background: var(--dp-surface); color: inherit; font-size: inherit; }
+:host([data-deskpal-theme="retro"]) .msg { border-radius: 8px; padding: 6px 9px; }
+:host([data-deskpal-theme="retro"]) .msg.user { background: color-mix(in srgb, var(--dp-accent) 18%, var(--dp-surface)); color: inherit; }
+:host([data-deskpal-theme="retro"]) .msg.bot { border: 1px solid var(--dp-ink); }
+:host([data-deskpal-theme="retro"]) .msg.note { font-size: 1em; font-style: italic; padding: 6px 9px; }
+:host([data-deskpal-theme="retro"]) .msg.thinking { opacity: 1; border-style: dashed; }
+:host([data-deskpal-theme="retro"]) .ask input { background: var(--dp-surface); border: 1px solid var(--dp-ink); border-radius: 4px; }
+:host([data-deskpal-theme="retro"]) .ask button, :host([data-deskpal-theme="retro"]) .choices button, :host([data-deskpal-theme="retro"]) .restore {
   border: 1px solid var(--dp-ink); border-radius: 4px; background: var(--dp-surface); color: inherit;
   box-shadow: 2px 2px 0 var(--dp-hard); font-weight: normal;
 }
-:host(.retro) .ask button:active { box-shadow: none; transform: translate(2px, 2px); }
-:host(.retro) .sources, :host(.retro) .sources-label { border-top-style: dashed; border-top-color: var(--dp-muted); }
-:host(.retro) .progress { height: 10px; border: 1px solid var(--dp-ink); border-radius: 0; }
-:host(.retro) .restore { border-radius: 16px; font-weight: bold; }
+:host([data-deskpal-theme="retro"]) .ask button { background: var(--dp-accent); color: var(--dp-on-accent); }
+:host([data-deskpal-theme="retro"]) .choices button, :host([data-deskpal-theme="retro"]) .restore { color: var(--dp-accent); }
+:host([data-deskpal-theme="retro"]) .ask button:active { box-shadow: none; transform: translate(2px, 2px); }
+:host([data-deskpal-theme="retro"]) .sources, :host([data-deskpal-theme="retro"]) .sources-label { border-top-style: dashed; border-top-color: var(--dp-muted); }
+:host([data-deskpal-theme="retro"]) .progress { height: 10px; border: 1px solid var(--dp-ink); border-radius: 0; }
+:host([data-deskpal-theme="retro"]) .restore { border-radius: 16px; font-weight: bold; }
 `;
 
 /** Rules for the `fontSize` and `accent` options, added after the stylesheet. */
@@ -194,18 +193,16 @@ export function configCss(config: Pick<DeskpalConfig, 'fontSize' | 'accent'>): s
   const vars: string[] = [];
   if (config.fontSize) vars.push(`--dp-font-size: ${config.fontSize}px;`);
   if (config.accent) {
-    vars.push(`--dp-accent: ${config.accent};`);
-    const light = isLight(config.accent);
-    if (light !== undefined) vars.push(`--dp-on-accent: ${light ? '#0f1220' : '#ffffff'};`);
+    vars.push(`--dp-accent: ${config.accent};`, `--dp-on-accent: ${isLight(config.accent) ? '#0f1220' : '#ffffff'};`);
   }
-  // :host(.retro) too, which would otherwise win on specificity.
-  return vars.length ? `\n:host, :host(.retro) { ${vars.join(' ')} }` : '';
+  // The retro selector too, which would otherwise win on specificity.
+  return vars.length ? `\n:host, :host([data-deskpal-theme="retro"]) { ${vars.join(' ')} }` : '';
 }
 
-/** Whether a hex colour wants dark text on it; undefined for other syntaxes. */
-export function isLight(colour: string): boolean | undefined {
+/** Whether a hex colour (all `accent` allows) wants dark text on it. */
+export function isLight(colour: string): boolean {
   const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(colour)?.[1];
-  if (!hex) return undefined;
+  if (!hex) return false;
   const full = hex.length <= 4 ? [...hex].map((c) => c + c).join('') : hex;
   const [r, g, b] = [0, 2, 4].map((i) => {
     const c = parseInt(full.slice(i, i + 2), 16) / 255;

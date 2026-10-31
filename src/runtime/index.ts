@@ -87,30 +87,60 @@ export async function loadGenerator(model: GenModel, onProgress?: FileProgress):
   configure();
   let lastError: unknown;
   for (const { device, dtype } of await devices(model)) {
+    // The next device fetches a different file; take this one's bytes off the bar.
+    const seen = new Map<string, number>();
+    const track: FileProgress = (key, loaded, total) => {
+      seen.set(key, total);
+      onProgress?.(key, loaded, total);
+    };
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const generator: any = await pipeline('text-generation', model.id, {
         device,
         dtype: dtype as never,
-        progress_callback: progressCallback(model.id, onProgress) as never,
+        progress_callback: progressCallback(model.id, track) as never,
       });
+      // On WASM a token's inference never yields to the event loop, so a `stop`
+      // or another question would wait for the whole answer. One hop per token
+      // lets them in.
+      const forward = generator.model.forward.bind(generator.model);
+      generator.model.forward = async (inputs: unknown) => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return forward(inputs);
+      };
       const stopper = new InterruptableStoppingCriteria();
-      let running: Promise<void> = Promise.resolve();
+      // Each run waits for the one before: two at once on one session hang.
+      let last: Promise<void> = Promise.resolve();
+      let active: AbortSignal | null = null;
       return {
         device,
         dtype,
-        async run(messages, onPiece) {
+        run(messages, onPiece, signal) {
+          const previous = last;
+          // The newest question wins: end the answer in progress.
           stopper.interrupt();
-          await running.catch(() => {});
-          stopper.reset();
-          const streamer = new TextStreamer(generator.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onPiece });
-          running = generator(messages, { max_new_tokens: model.maxNewTokens, do_sample: false, repetition_penalty: 1.05, streamer, stopping_criteria: stopper });
-          await running;
+          const run = (async () => {
+            await previous.catch(() => {});
+            if (signal.aborted) return;
+            stopper.reset();
+            active = signal;
+            const onAbort = () => active === signal && stopper.interrupt();
+            signal.addEventListener('abort', onAbort);
+            try {
+              const streamer = new TextStreamer(generator.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onPiece });
+              await generator(messages, { max_new_tokens: model.maxNewTokens, do_sample: false, repetition_penalty: 1.05, streamer, stopping_criteria: stopper });
+            } finally {
+              signal.removeEventListener('abort', onAbort);
+              active = null;
+            }
+          })();
+          last = run;
+          return run;
         },
-        stop: () => stopper.interrupt(),
       };
     } catch (err) {
       console.warn(`deskpal: could not load ${model.id} on ${device}`, err);
+      for (const [key, total] of seen) onProgress?.(key, 0, total);
       lastError = err;
     }
   }

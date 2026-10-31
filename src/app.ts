@@ -5,11 +5,12 @@ import { ANNOUNCE, initialState, loopFor, step, type BehaviourEvent, type State 
 import type { DeskpalConfig } from './core/config.ts';
 import { DownloadProgress } from './core/progress.ts';
 import { Store } from './core/storage.ts';
-import { DEFAULT_EMBEDDING } from './rag/embedding.ts';
+import { DEFAULT_EMBEDDING, embeddingFor, type EmbedModel } from './rag/embedding.ts';
 import { DEFAULT_EXTRACTIVE, type Extract } from './rag/extract.ts';
 import { loadIndex } from './rag/loader.ts';
 import { buildPrompt } from './rag/prompt.ts';
-import { MIN_SCORE_KEYWORD, MIN_SCORE_VECTOR, Searcher } from './rag/search.ts';
+import { remoteEmbedder } from './rag/remote.ts';
+import { MIN_SCORE_KEYWORD, Searcher } from './rag/search.ts';
 import type { DeskpalIndex, Embedder, Hit } from './rag/types.ts';
 import { INTENT_ANIMATION, matchSmallTalk, SmallTalkMatcher } from './persona/smalltalk.ts';
 import { mergeVoice, Speaker, type Intent, type LineSet } from './persona/voice.ts';
@@ -49,6 +50,7 @@ export class Deskpal {
   private smallTalkMatcher: SmallTalkMatcher | null = null;
   private generative: GenerativeAdapter | null;
   private generativeReady = false;
+  private genModel: GenModel | null = null;
   /** The lazily loaded runtime, for the `browser` adapter and query embeddings. */
   private runtime: 'idle' | 'loaded' | 'declined' | 'failed' = 'idle';
   private inFlight: AbortController | null = null;
@@ -146,10 +148,14 @@ export class Deskpal {
       const index = await loadIndex(new URL(this.config.index, document.baseURI).href);
       // Keyword search works at once; vectors need the runtime (and consent).
       this.keywordSearcher = new Searcher(index);
-      if (index.model && (index.model.id !== DEFAULT_EMBEDDING.id || index.model.dim !== DEFAULT_EMBEDDING.dim)) {
+      if (index.model && this.config.embedEndpoint) {
+        // The server embeds questions: vectors work at once, with no download.
+        this.embedder = remoteEmbedder(new URL(this.config.embedEndpoint, document.baseURI).href, index.model);
+        this.vectorSearcher = new Searcher(index, this.embedder);
+      } else if (index.model && !embeddingFor(index.model)) {
         console.error(
-          `deskpal: the index was built with "${index.model.id}" but this widget embeds with "${DEFAULT_EMBEDDING.id}". ` +
-            'Searching by keyword only; rebuild the index with this version of deskpal.',
+          `deskpal: the index was built with "${index.model.id}", which this widget can't embed questions with. ` +
+            'Searching by keyword only; rebuild the index with this version of deskpal, or set embedEndpoint.',
         );
       }
       return index;
@@ -159,9 +165,14 @@ export class Deskpal {
     }
   }
 
-  /** Whether this index's vectors can be used: built with the model the runtime embeds with. */
-  private hasUsableVectors(index: DeskpalIndex): boolean {
-    return index.model?.id === DEFAULT_EMBEDDING.id && index.model.dim === DEFAULT_EMBEDDING.dim;
+  /** Whether the runtime should embed questions for this index: a model it knows, and no server doing it. */
+  private embedsOnDevice(index: DeskpalIndex): boolean {
+    return !this.config.embedEndpoint && !!embeddingFor(index.model);
+  }
+
+  /** The index model's search tuning; bge-small's for a model only the server knows. */
+  private tuning(index: DeskpalIndex): EmbedModel {
+    return embeddingFor(index.model) ?? DEFAULT_EMBEDDING;
   }
 
   private async loadCharacter(): Promise<void> {
@@ -256,7 +267,7 @@ export class Deskpal {
     const announce = ANNOUNCE[once ?? ''] ?? (state.mode !== before.mode ? ANNOUNCE[loopFor(state.mode)] : undefined);
     if (announce) this.dom.status.textContent = announce;
     if (once) await this.player.play(once, loopFor(state.mode));
-    else if (state.mode !== before.mode || this.player.playing !== loopFor(state.mode)) void this.player.play(loopFor(state.mode));
+    else if (state.mode !== before.mode || this.player.playing !== this.player.resolve(loopFor(state.mode))) void this.player.play(loopFor(state.mode));
   }
 
   private poke(): void {
@@ -329,12 +340,20 @@ export class Deskpal {
 
     this.startThinking();
     try {
-      const searcher = this.vectorSearcher ?? this.keywordSearcher;
-      const minScore = this.config.minScore ?? (searcher.usesVectors ? MIN_SCORE_VECTOR : MIN_SCORE_KEYWORD);
-      const hits = await searcher.search(question, { topK: this.config.topK, minScore });
+      let searcher = this.vectorSearcher ?? this.keywordSearcher;
+      let hits: Hit[];
+      try {
+        hits = await searcher.search(question, this.searchOptions(index, searcher));
+      } catch (err) {
+        // The embedding server is down or limiting this visitor: keywords still work.
+        if (searcher === this.keywordSearcher) throw err;
+        console.warn(err);
+        searcher = this.keywordSearcher;
+        hits = await searcher.search(question, this.searchOptions(index, searcher));
+      }
       if (ctrl.signal.aborted) return;
       if (hits.length === 0) {
-        const chatty = await this.smallTalkByMeaning(question);
+        const chatty = await this.smallTalkByMeaning(question, index);
         if (ctrl.signal.aborted) return;
         return chatty ? this.chat(chatty) : this.dontKnow(searcher, question);
       }
@@ -355,10 +374,17 @@ export class Deskpal {
   }
 
   /** Paraphrased small talk, by similarity, once the docs matched nothing. Needs the query embedder. */
-  private async smallTalkByMeaning(question: string): Promise<Intent | null> {
+  private async smallTalkByMeaning(question: string, index: DeskpalIndex): Promise<Intent | null> {
     if (!this.config.smallTalk || !this.embedder) return null;
     const embedder = this.embedder;
-    this.smallTalkMatcher ??= new SmallTalkMatcher((text) => embedder.embedQuery(text));
+    const embedMany = async (texts: string[]) => {
+      // One text is the question just searched with, which the embedder may still hold.
+      if (embedder.embedQueries && texts.length > 1) return embedder.embedQueries(texts);
+      const out: Float32Array[] = [];
+      for (const t of texts) out.push(await embedder.embedQuery(t));
+      return out;
+    };
+    this.smallTalkMatcher ??= new SmallTalkMatcher(embedMany, this.tuning(index).smallTalk);
     try {
       return await this.smallTalkMatcher.match(question);
     } catch (err) {
@@ -390,22 +416,44 @@ export class Deskpal {
 
   /** The runtime is needed for the on-device adapters, or to embed queries for an index with vectors. */
   private wantsRuntime(index: DeskpalIndex): boolean {
-    return this.onDevice() || this.hasUsableVectors(index);
+    return this.onDevice() || this.embedsOnDevice(index);
+  }
+
+  private searchOptions(index: DeskpalIndex, searcher: Searcher) {
+    const { vectorWeight, minScore } = this.tuning(index);
+    return { topK: this.topK(), vectorWeight, minScore: this.config.minScore ?? (searcher.usesVectors ? minScore : MIN_SCORE_KEYWORD) };
+  }
+
+  /** A cloud writer reads six sections as quickly as four, so a near miss still reaches it. */
+  private topK(): number {
+    return this.config.topK ?? (['openai-compatible', 'anthropic', 'custom'].includes(this.config.adapter) ? 6 : 4);
   }
 
   private onDevice(): boolean {
     return this.config.adapter === 'browser' || this.config.adapter === 'browser-generative';
   }
 
+  /**
+   * Gemma unless `model` names another, which needs `modelSizeMB` so the
+   * download prompt quotes it truthfully.
+   */
   private generatorModel(): GenModel {
-    return this.config.model ? { ...DEFAULT_GENERATOR, id: this.config.model } : DEFAULT_GENERATOR;
+    if (this.genModel) return this.genModel;
+    const { model, modelSizeMB, modelDtype = 'q4' } = this.config;
+    if (model && !modelSizeMB) console.warn(`deskpal: set modelSizeMB to use "${model}" on the device; using ${DEFAULT_GENERATOR.id} instead`);
+    this.genModel = model && modelSizeMB
+      ? { ...DEFAULT_GENERATOR, id: model, sizeMB: modelSizeMB, dtype: { webgpu: modelDtype, webgpuNoF16: modelDtype, wasm: modelDtype } }
+      : DEFAULT_GENERATOR;
+    return this.genModel;
   }
 
   /** The one-time download prompt (SPEC §4). The answer is remembered per site. */
   private askToDownload(index: DeskpalIndex, signal: AbortSignal): Promise<boolean> {
-    const saved = this.store.get('download');
-    if (saved) return Promise.resolve(saved === 'yes');
     const mb = this.expectedDownloadMB(index) + RUNTIME_DOWNLOAD_MB;
+    const saved = this.store.get('download');
+    if (saved === 'no') return Promise.resolve(false);
+    // A yes covers the size it was given for, not a bigger model added since.
+    if (saved === 'yes' && (this.store.get('downloadMB') ?? 0) >= mb) return Promise.resolve(true);
     const privacy = this.onDevice() ? ' Everything then runs on your device.' : '';
     const msg = this.addMessage('bot', `To answer properly I need to download about ${Math.round(mb / 10) * 10} MB, once. It stays in your browser's cache.${privacy}`);
     const choices = document.createElement('div');
@@ -422,6 +470,7 @@ export class Deskpal {
         choices.remove();
         if (answer) {
           this.store.set('download', answer);
+          if (answer === 'yes') this.store.set('downloadMB', mb);
           this.addMessage('user', answer === 'yes' ? 'Download' : 'No thanks, just links');
           void this.dispatch('ask');
           this.dom.input.focus();
@@ -436,7 +485,7 @@ export class Deskpal {
 
   private expectedDownloadMB(index: DeskpalIndex): number {
     const answers = { browser: DEFAULT_EXTRACTIVE.sizeMB, 'browser-generative': this.generatorModel().sizeMB }[this.config.adapter as string] ?? 0;
-    return (this.hasUsableVectors(index) ? DEFAULT_EMBEDDING.sizeMB : 0) + answers;
+    return (this.embedsOnDevice(index) ? embeddingFor(index.model)!.sizeMB : 0) + answers;
   }
 
   /** Loads the runtime and the models this page needs, with the progress bar and `download` animation. */
@@ -453,8 +502,8 @@ export class Deskpal {
     try {
       const rt = await startRuntime(this.config.runtimeUrl, { modelHost: this.config.modelHost, worker: this.config.worker });
       // One model at a time keeps peak memory down on small devices.
-      if (this.hasUsableVectors(index)) {
-        this.embedder = await rt.loadEmbedder(DEFAULT_EMBEDDING, progress.update);
+      if (this.embedsOnDevice(index)) {
+        this.embedder = await rt.loadEmbedder(embeddingFor(index.model)!, progress.update);
         this.vectorSearcher = new Searcher(index, this.embedder);
       }
       if (this.config.adapter === 'browser') this.extractive = await rt.loadExtractive(DEFAULT_EXTRACTIVE, this.config.minAnswerScore, progress.update);
@@ -570,6 +619,7 @@ export class Deskpal {
       await this.ensureGenerative(signal);
       this.dom.log.setAttribute('aria-busy', 'true');
       for await (const piece of this.generative!.generate(buildPrompt(question, hits), signal)) {
+        if (signal.aborted) break;
         if (!msg) {
           msg = this.addMessage('bot', '');
           void this.dispatch('answer-start');
@@ -588,9 +638,15 @@ export class Deskpal {
       await this.dispatch('error');
       return;
     } finally {
-      this.dom.log.removeAttribute('aria-busy');
-      this.dom.progress.hidden = true;
+      // Unless a newer question owns them by now.
+      if (this.inFlight?.signal === signal) {
+        this.dom.log.removeAttribute('aria-busy');
+        this.dom.progress.hidden = true;
+      }
     }
+    // A newer question took over. The on-device writer ends without an error
+    // when stopped, so the catch above doesn't see it.
+    if (signal.aborted) return;
 
     if (!msg || !full.trim() || DONT_KNOW.test(full)) {
       msg?.remove();
@@ -619,7 +675,7 @@ export class Deskpal {
   }
 
   private async dontKnow(searcher: Searcher, question: string, near?: Hit[]): Promise<void> {
-    const closest = near ?? (await searcher.search(question, { topK: 3, minScore: 0.05 }));
+    const closest = near ?? (await searcher.search(question, { topK: 3, minScore: 0.05, vectorWeight: this.tuning(searcher.index).vectorWeight }));
     const msg = this.addMessage('bot', this.speaker.say('dontKnow'));
     if (closest.length) this.appendSources(msg, closest, false, 'These might be close:');
     await this.dispatch('no-answer');

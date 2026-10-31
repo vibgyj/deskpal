@@ -86,16 +86,18 @@ test('worker client: an on-device writer streams pieces and stops on abort', asy
   withFakeWorker(t);
   const rt = await startWorker('https://site.test/deskpal-worker.js', {});
   const stops: number[] = [];
+  const generates: number[] = [];
   let finish: (() => void) | null = null;
   FakeWorker.last.handle = (req, reply) => {
     if (req.op === 'loadGenerator') return reply({ id: req.id, ok: true, result: { device: 'webgpu', dtype: 'q4f16' } });
     if (req.op === 'generate') {
+      generates.push(req.id);
       for (const piece of ['Book ', 'online [1].']) reply({ id: req.id, piece });
       finish = () => reply({ id: req.id, ok: true });
       return;
     }
     if (req.op === 'stop') {
-      stops.push(req.id);
+      stops.push(req.target);
       finish?.();
     }
     reply({ id: req.id, ok: true });
@@ -112,7 +114,13 @@ test('worker client: an on-device writer streams pieces and stops on abort', asy
     if (pieces.length === 2) ctrl.abort();
   }
   assert.deepEqual(pieces, ['Book ', 'online [1].']);
-  assert.equal(stops.length, 1, 'abort tells the worker to stop');
+  assert.deepEqual(stops, generates, 'abort stops that generation, by its id');
+
+  // A question replaced before its answer starts never reaches the worker.
+  const gone = new AbortController();
+  gone.abort();
+  for await (const piece of writer.generate(prompt, gone.signal)) assert.fail(`unexpected ${piece}`);
+  assert.equal(generates.length, 1);
 });
 
 test('on-device writer: a failed generation throws after the pieces so far', async () => {
@@ -123,7 +131,6 @@ test('on-device writer: a failed generation throws after the pieces so far', asy
       onPiece('Half an');
       throw new Error('out of memory');
     },
-    stop: () => {},
   });
   const pieces: string[] = [];
   await assert.rejects(async () => {

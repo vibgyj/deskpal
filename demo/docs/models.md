@@ -37,6 +37,38 @@ not private by default. Do not put a secret API key in the page: every visitor
 can read it. For a cloud model, point `endpoint` at your own proxy that adds the
 key on the server.
 
+## Embedding questions on your server
+
+To match a question by meaning, deskpal turns it into a vector with the same
+model the index was built with. By default that model runs in the visitor's
+browser, which means a download of 34 MB (bge-small) or 110 MB (bge-base)
+before the first answer, even when a cloud model writes the answers.
+
+With `embedEndpoint`, your server embeds questions instead, and visitors
+download nothing:
+
+```json
+{
+  "index": "/deskpal-index.json",
+  "embedEndpoint": "/api/embed",
+  "adapter": "openai-compatible",
+  "endpoint": "/api/llm"
+}
+```
+
+deskpal sends a `POST` with JSON `{"texts": ["how much does it cost?"]}`, up
+to 32 texts, and expects `{"model": "<model id>", "vectors": [[...], ...]}`
+back: one vector per text. Your server applies the model's query prefix, and
+`model` must be the id in the index (`Xenova/bge-base-en-v1.5`, say). Embed
+with `embedAll(extractor, model, texts.map((t) => queryText(model, t)))` from
+deskpal's `src/rag/embedding.ts` and the vectors match the index exactly.
+
+The questions go to your server, so this is not private in the way on-device
+answers are. Limit the endpoint as you would any public API: cap the text
+length and texts per request, rate-limit per visitor, and refuse requests
+whose `Origin` is another site. When the endpoint fails or answers 429,
+deskpal falls back to keyword search for that question.
+
 ## Claude
 
 The `anthropic` adapter writes answers with Claude through the Messages API,

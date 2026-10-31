@@ -10,36 +10,59 @@ export function tokenize(text: string): string[] {
 }
 
 /**
- * Words a visitor uses for the same thing the docs call something else, folded
- * to one term. Only money so far: "how much does it cost" against "Pricing".
+ * Words a visitor uses for what the docs call price: "how much does it cost"
+ * against "Pricing". Only questions are widened this way, so a doc's own
+ * "fee" or "subscription" keeps its meaning there.
  */
-const SAME = new Map(['cost', 'costs', 'costing', 'fee', 'fees', 'charge', 'charges', 'charged', 'expensive', 'cheap', 'cheaper', 'afford', 'affordable'].map((w) => [w, 'price']));
+const PRICE = new Set(['cost', 'fee', 'charge', 'expensive', 'cheap', 'cheaper', 'afford', 'affordable', 'subscription', 'subscribe']);
 
-/**
- * Folds plurals and -ing/-ed so "needs" matches "need" and "pricing" matches
- * "price". Deliberately timid: a missed match only costs keyword score, since
- * vectors catch meaning.
- */
-export function stem(word: string): string {
-  let t = SAME.get(word) ?? word;
+/** Folds plurals so "needs" matches "need". */
+export function stem(t: string): string {
   if (t.length > 4 && t.endsWith('ies')) return `${t.slice(0, -3)}y`;
-  if (t.length > 3 && t.endsWith('s') && !/(ss|us|is)$/.test(t)) t = t.slice(0, -1);
-  if (t.length > 5 && t.endsWith('ing')) t = t.slice(0, -3);
-  else if (t.length > 4 && t.endsWith('ed') && !t.endsWith('eed')) t = t.slice(0, -2);
-  // booked → book stays, but stopp(ed) → stop and pric(e) → pric.
-  if (/([^aeioulsz])\1$/.test(t)) t = t.slice(0, -1);
-  if (t.length > 3 && t.endsWith('e') && !t.endsWith('ee')) t = t.slice(0, -1);
+  if (t.length > 3 && t.endsWith('s') && !/(ss|us|is)$/.test(t)) return t.slice(0, -1);
   return t;
 }
 
-/** Tokens worth matching on: no stopwords, no single characters. */
-export function terms(text: string): string[] {
-  const out: string[] = [];
+/**
+ * A word and, for an -ing, -ed or -ly word, the bases it may come from:
+ * "pricing" gives price and pric, "embedding" embed, "stopped" stop, "monthly"
+ * month. Base words are never cut, so "note" never becomes "not"; a wrong
+ * guess such as "booke" is a term no word has. Under four letters is too
+ * short to guess at. In a question, the price words also look for "price".
+ */
+export function forms(word: string, question = false): string[] {
+  const t = stem(word);
+  const out = [t];
+  const base =
+    t.length > 5 && t.endsWith('ing') ? t.slice(0, -3)
+    : t.length > 4 && t.endsWith('ed') && !t.endsWith('eed') ? t.slice(0, -2)
+    : t.length > 5 && t.endsWith('ly') ? t.slice(0, -2)
+    : null;
+  if (base) {
+    for (const b of [base, `${base}e`, /([^aeioulsz])\1$/.test(base) ? base.slice(0, -1) : '']) {
+      if (b.length >= 4 && !out.includes(b)) out.push(b);
+    }
+  }
+  if (question && out.some((f) => PRICE.has(f))) out.push('price');
+  return out;
+}
+
+/**
+ * Words worth matching on, each as its forms (see `forms`): no stopwords, no
+ * single characters. A compound token also counts as its parts, so "index"
+ * finds "data-index".
+ */
+export function termGroups(text: string, question = false): string[][] {
+  const out: string[][] = [];
   for (const t of tokenize(text)) {
     if (t.length < 2 || STOPWORDS.has(t)) continue;
-    out.push(stem(t));
-    // Also index the parts of compound tokens, so "index" finds "data-index".
-    if (/[-_.]/.test(t)) for (const p of t.split(/[-_.]/)) if (p.length > 1 && !STOPWORDS.has(p)) out.push(stem(p));
+    out.push(forms(t, question));
+    if (/[-_.]/.test(t)) for (const p of t.split(/[-_.]/)) if (p.length > 1 && !STOPWORDS.has(p)) out.push(forms(p, question));
   }
   return out;
+}
+
+/** Every form of every word worth matching on. */
+export function terms(text: string): string[] {
+  return termGroups(text).flat();
 }

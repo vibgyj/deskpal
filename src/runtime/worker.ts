@@ -10,6 +10,8 @@ import type { WorkerRequest, WorkerResponse } from './protocol.ts';
 let embedder: Embedder | null = null;
 let extractive: ExtractiveAdapter | null = null;
 let generator: LocalGenerator | null = null;
+/** Generations in progress, by request id, so `stop` ends only its own. */
+const generations = new Map<number, AbortController>();
 /** Extraction can't be interrupted; the widget ignores results it no longer wants. Generation can (`stop`). */
 const never = new AbortController().signal;
 
@@ -38,11 +40,18 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
       case 'loadGenerator':
         generator = await loadGenerator(req.model, progress);
         return post({ id: req.id, ok: true, result: { device: generator.device, dtype: generator.dtype } });
-      case 'generate':
-        await generator!.run(req.messages, (piece) => post({ id: req.id, piece }));
+      case 'generate': {
+        const ctrl = new AbortController();
+        generations.set(req.id, ctrl);
+        try {
+          await generator!.run(req.messages, (piece) => post({ id: req.id, piece }), ctrl.signal);
+        } finally {
+          generations.delete(req.id);
+        }
         return post({ id: req.id, ok: true });
+      }
       case 'stop':
-        generator?.stop();
+        generations.get(req.target)?.abort();
         return post({ id: req.id, ok: true });
     }
   } catch (err) {

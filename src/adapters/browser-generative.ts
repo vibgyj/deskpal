@@ -26,10 +26,11 @@ export const DEFAULT_GENERATOR: GenModel = {
 export interface LocalGenerator {
   readonly device: 'webgpu' | 'wasm';
   readonly dtype: string;
-  /** Resolves when the answer is complete or stopped. */
-  run(messages: Message[], onPiece: (text: string) => void): Promise<void>;
-  /** Ends the current generation early. */
-  stop(): void;
+  /**
+   * Resolves when the answer is complete or `signal` stops it. Runs go one at
+   * a time, and a new one ends the one before; aborting stops only this one.
+   */
+  run(messages: Message[], onPiece: (text: string) => void, signal: AbortSignal): Promise<void>;
 }
 
 /** Turns the callback-style generator into a writer: pieces as they come, stopped on abort. */
@@ -38,36 +39,34 @@ export function generatorAdapter(gen: LocalGenerator): GenerativeAdapter {
     kind: 'generate',
     ready: async () => {},
     async *generate(prompt, signal) {
+      if (signal.aborted) return;
       const queue: string[] = [];
       let wake: (() => void) | null = null;
       let done = false;
       let error: unknown = null;
-      const onAbort = () => gen.stop();
-      signal.addEventListener('abort', onAbort);
       gen
-        .run(prompt.messages, (piece) => {
-          queue.push(piece);
-          wake?.();
-        })
+        .run(
+          prompt.messages,
+          (piece) => {
+            queue.push(piece);
+            wake?.();
+          },
+          signal,
+        )
         .then(
           () => void (done = true),
           (err: unknown) => void ((error = err), (done = true)),
         )
         .finally(() => wake?.());
-      try {
-        while (true) {
-          if (queue.length) {
-            const piece = queue.shift()!;
-            if (piece) yield piece;
-          } else if (done) break;
-          else await new Promise<void>((resolve) => (wake = resolve));
-          wake = null;
-        }
-        if (error) throw error;
-      } finally {
-        signal.removeEventListener('abort', onAbort);
-        if (!done) gen.stop();
+      while (true) {
+        if (queue.length) {
+          const piece = queue.shift()!;
+          if (piece) yield piece;
+        } else if (done) break;
+        else await new Promise<void>((resolve) => (wake = resolve));
+        wake = null;
       }
+      if (error) throw error;
     },
   };
 }

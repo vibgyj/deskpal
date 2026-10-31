@@ -104,8 +104,9 @@ export class SpritePlayer {
     const next = c.then ?? c.def.next;
     const done = c.done;
     c.done = undefined;
-    if (next && this.has(next)) {
-      this.current = { name: next, def: this.skin.manifest.animations[next]!, started: performance.now() };
+    const name = next && this.resolve(next);
+    if (name && this.has(name)) {
+      this.current = { name, def: this.skin.manifest.animations[name]!, started: performance.now() };
       this.lastFrame = -1;
       this.start();
     } else {

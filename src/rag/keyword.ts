@@ -1,4 +1,4 @@
-import { terms } from './text.ts';
+import { termGroups } from './text.ts';
 
 const K1 = 1.2;
 const B = 0.75;
@@ -19,11 +19,11 @@ export class KeywordIndex {
   constructor(texts: string[]) {
     for (const text of texts) {
       const tf = new Map<string, number>();
-      const ts = terms(text);
-      for (const t of ts) tf.set(t, (tf.get(t) ?? 0) + 1);
+      const words = termGroups(text);
+      for (const t of words.flat()) tf.set(t, (tf.get(t) ?? 0) + 1);
       for (const t of tf.keys()) this.df.set(t, (this.df.get(t) ?? 0) + 1);
       this.docs.push(tf);
-      this.lengths.push(ts.length);
+      this.lengths.push(words.length);
     }
     const total = this.lengths.reduce((a, b) => a + b, 0);
     this.avgLength = Math.max(1, total / Math.max(1, texts.length));
@@ -35,19 +35,24 @@ export class KeywordIndex {
     return Math.log(1 + (n - df + 0.5) / (df + 0.5));
   }
 
-  /** One score per chunk, in index order. */
+  /**
+   * One score per chunk, in index order. Each query word counts once, matched
+   * by any of its forms, and weighs as its most common form, since that is
+   * what it matches.
+   */
   score(query: string): number[] {
-    const q = [...new Set(terms(query))];
+    const seen = new Set<string>();
+    const q = termGroups(query, true).filter((g) => !seen.has(g[0]!) && seen.add(g[0]!));
     const scores = new Array<number>(this.docs.length).fill(0);
     if (q.length === 0) return scores;
-    const weights = q.map((t) => this.idf(t));
+    const weights = q.map((g) => Math.min(...g.map((t) => this.idf(t))));
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     for (let d = 0; d < this.docs.length; d++) {
       const tf = this.docs[d]!;
       const norm = K1 * (1 - B + (B * this.lengths[d]!) / this.avgLength);
       let s = 0;
-      q.forEach((t, i) => {
-        const f = tf.get(t);
+      q.forEach((g, i) => {
+        const f = Math.max(0, ...g.map((t) => tf.get(t) ?? 0));
         if (f) s += weights[i]! * (PRESENCE + (1 - PRESENCE) * (f / (f + norm)));
       });
       scores[d] = s / totalWeight;
