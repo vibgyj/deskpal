@@ -252,16 +252,24 @@ test('visitors: without TRUST_PROXY, X-Forwarded-For is ignored', async () => {
 });
 
 // PHP has no queue of its own: its workers wait on the sidecar, which is tested as Node.
-test('embed: a full queue answers 503 instead of piling up', { skip: !withEmbed || port === 'php', timeout: 300_000 }, async () => {
-  const busy = await start({ LIMIT_EMBED_PER_MIN: '1000' });
-  // One long, uncached text each: slow enough to queue, quick enough to drain.
-  const long = (i) => [`question number ${i} `.repeat(60).slice(0, 1000)];
-  const statuses = await Promise.all(Array.from({ length: 40 }, async (_, i) => {
-    const res = await fetch(`${busy}/embed`, { method: 'POST', headers: { 'x-forwarded-for': `10.1.${i}.1` }, body: JSON.stringify({ texts: long(i) }) });
-    await res.arrayBuffer();
-    if (res.status === 503) assert.ok(Number(res.headers.get('retry-after')) >= 1);
-    return res.status;
-  }));
-  assert.ok(statuses.includes(503), `some were turned away: ${statuses.join(' ')}`);
-  assert.ok(statuses.includes(200), 'the queued ones were answered');
+test('embed: while one runs, a full queue answers 503 and answers still stream', { skip: !withEmbed || port === 'php', timeout: 300_000 }, async () => {
+  const busy = await start({ LIMIT_EMBED_PER_MIN: '1000', EMBED_QUEUE: '1' });
+  const embed = (ip, texts) => fetch(`${busy}/embed`, { method: 'POST', headers: { 'x-forwarded-for': ip }, body: JSON.stringify({ texts }) });
+  await (await embed('10.1.0.1', ['warm up'])).arrayBuffer();
+  // A full batch of long texts keeps the model busy for a while.
+  const heavy = embed('10.1.0.2', Array.from({ length: 32 }, (_, j) => `question ${j} `.repeat(60).slice(0, 600)));
+  await new Promise((r) => setTimeout(r, 300));
+
+  const started = Date.now();
+  const refused = await embed('10.1.0.3', ['one more']);
+  assert.equal(refused.status, 503);
+  assert.ok(Number(refused.headers.get('retry-after')) >= 1);
+  const answer = await fetch(`${busy}/llm/chat/completions`, { method: 'POST', headers: { 'x-forwarded-for': '10.1.0.4' }, body: JSON.stringify(ask('q')) });
+  assert.equal(answer.status, 200);
+  assert.match(await answer.text(), /\[DONE\]/);
+  assert.ok(Date.now() - started < 2000, `other requests waited ${Date.now() - started} ms for the model`);
+
+  const done = await heavy;
+  assert.equal(done.status, 200, 'the running one still finishes');
+  assert.equal((await done.json()).vectors.length, 32);
 });
