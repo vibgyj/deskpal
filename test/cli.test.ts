@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { buildIndex, pageUrl } from '../src/cli/build-index.ts';
-import { DEFAULT_EMBEDDING } from '../src/rag/embedding.ts';
+import { BGE_BASE, DEFAULT_EMBEDDING, type EmbedModel } from '../src/rag/embedding.ts';
+import { main } from '../src/cli/run.ts';
+import { readFile } from 'node:fs/promises';
 import { dequantizeInt8 } from '../src/rag/quantize.ts';
 import { chunkHtml, chunkMarkdown, slugify, splitText } from '../src/cli/chunk.ts';
 
@@ -95,4 +97,61 @@ test('buildIndex adds int8 vectors and records the model when embedding', async 
   const back = dequantizeInt8(index.chunks[1]!.v!, index.chunks[1]!.s!);
   assert.equal(back.length, DEFAULT_EMBEDDING.dim);
   assert.ok(Math.abs(back[0]! + 0.5) < 0.01);
+});
+
+/** Runs the CLI with a fake embedder, capturing what it prints. */
+async function cli(t: import('node:test').TestContext, args: string[]) {
+  const out: string[] = [];
+  const err: string[] = [];
+  t.mock.method(process.stdout, 'write', (s: string) => (out.push(s), true));
+  t.mock.method(process.stderr, 'write', (s: string) => (err.push(s), true));
+  const models: EmbedModel[] = [];
+  const embedderFor = async (model: EmbedModel) => {
+    models.push(model);
+    return async (chunks: { text: string }[]) => chunks.map(() => Float32Array.from({ length: model.dim }, (_, i) => (i === 0 ? 1 : 0)));
+  };
+  const code = await main(args, embedderFor);
+  t.mock.restoreAll();
+  return { code, out: out.join(''), err: err.join(''), models };
+}
+
+async function docsDir() {
+  const dir = await mkdtemp(join(tmpdir(), 'deskpal-'));
+  await writeFile(join(dir, 'a.md'), '# A\n\nAlpha.\n\n## B\n\nBeta.');
+  return dir;
+}
+
+test('cli: --model picks the embedding model and the index records it', async (t) => {
+  const dir = await docsDir();
+  const out = join(dir, 'index.json');
+  const run = await cli(t, ['build-index', dir, '-o', out, '--model', 'bge-base-en-v1.5']);
+  assert.equal(run.code, 0, run.err);
+  assert.deepEqual(run.models, [BGE_BASE]);
+  const index = JSON.parse(await readFile(out, 'utf8'));
+  assert.deepEqual(index.model, { id: BGE_BASE.id, dim: 768, quant: 'int8' });
+  assert.match(run.out, /2 chunks from 1 pages .*vectors: /);
+});
+
+test('cli: bge-small by default; --no-embed loads no model', async (t) => {
+  const dir = await docsDir();
+  const small = await cli(t, ['build-index', dir, '-o', join(dir, 'small.json')]);
+  assert.deepEqual(small.models, [DEFAULT_EMBEDDING]);
+  const none = await cli(t, ['build-index', dir, '-o', join(dir, 'none.json'), '--no-embed']);
+  assert.equal(none.code, 0);
+  assert.deepEqual(none.models, []);
+  assert.equal(JSON.parse(await readFile(join(dir, 'none.json'), 'utf8')).model, null);
+});
+
+test('cli: an unknown model, command or bad option fails with a message', async (t) => {
+  const dir = await docsDir();
+  const model = await cli(t, ['build-index', dir, '--model', 'bge-huge']);
+  assert.equal(model.code, 1);
+  assert.match(model.err, /unknown model "bge-huge"; choose bge-small-en-v1.5 or bge-base-en-v1.5/);
+  assert.deepEqual(model.models, []);
+  assert.equal((await cli(t, ['serve'])).code, 1);
+  assert.equal((await cli(t, ['build-index'])).code, 1, 'no docs folder');
+  assert.equal((await cli(t, ['build-index', dir, '--max-chars', '50'])).code, 1, 'chunks too small');
+  const help = await cli(t, ['build-index', '--help']);
+  assert.equal(help.code, 0);
+  assert.match(help.out, /--model <name>/);
 });

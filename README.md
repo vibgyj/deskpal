@@ -32,15 +32,23 @@ questions there so visitors download nothing, and rate-limits visitors.
 
 ```sh
 npm install
-npm test          # unit tests (node --test, no build needed)
+npm test          # unit and widget tests (node --test, no build needed)
+npm run test:browser  # the built widget in Chromium (once: npx playwright install chromium)
 npm run test:proxy  # the proxy in Node, Python and PHP, against a fake upstream
 npm run typecheck
 npm run build     # dist/: deskpal.js (IIFE), deskpal.mjs (ESM), deskpal-runtime.js, deskpal-worker.js + ort/, cli.mjs
 npm run demo      # builds, indexes demo/docs and serves http://localhost:5173
 ```
 
-GitHub Actions runs the type-check, unit tests and build, and the proxy test
-for each port with the embedding check, on every pull request and push to main.
+The tests use the repo's own `demo/docs` and stand-ins for models, the
+embedding server and writers, so they download nothing and need no keys.
+`test/widget.test.ts` drives the widget in a fake DOM (happy-dom), question in
+and answer out; `test/e2e/` runs the built widget in a real browser under a
+strict Content Security Policy.
+
+GitHub Actions runs all of it on every pull request and push to main: the
+type-check, unit tests and build, the browser test, and the proxy test for each
+port with the embedding check.
 
 The demo server also prints its address on your network, for testing from a
 phone. Browsers only enable WebGPU and the model cache over HTTPS or

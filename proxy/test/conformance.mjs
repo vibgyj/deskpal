@@ -206,3 +206,62 @@ test('embed: vectors match the widget\'s own (transformers.js), and are limited'
   for (let i = 0; i < 4; i++) assert.equal((await fetch(`${base}/embed`, { method: 'POST', headers: { 'x-forwarded-for': '6.6.6.6' }, body: '{"texts":["hi"]}' })).status, 200);
   assert.equal((await fetch(`${base}/embed`, { method: 'POST', headers: { 'x-forwarded-for': '6.6.6.6' }, body: '{"texts":["hi"]}' })).status, 429);
 });
+
+test('claude: the full Messages path works too', async () => {
+  const res = await fetch(`${base}/claude/v1/messages`, { method: 'POST', headers: { 'x-forwarded-for': '2.2.2.9' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }) });
+  assert.equal(res.status, 200);
+  await res.text();
+  assert.equal(seen.at(-1).path, '/v1/messages');
+});
+
+test('limits: a daily cap per visitor', async () => {
+  const daily = await start({ LIMIT_LLM_PER_DAY: '2', EMBED_MODEL: 'off' });
+  const go = async (ip) => {
+    const res = await fetch(`${daily}/llm/chat/completions`, { method: 'POST', headers: { 'x-forwarded-for': ip }, body: JSON.stringify(ask('q')) });
+    await res.text();
+    return res.status;
+  };
+  assert.equal(await go('7.7.7.1'), 200);
+  assert.equal(await go('7.7.7.1'), 200);
+  assert.equal(await go('7.7.7.1'), 429);
+  assert.equal(await go('7.7.7.2'), 200, 'other visitors keep their own allowance');
+});
+
+test('origins: ALLOWED_ORIGINS lists the sites whose pages may call it', async () => {
+  const listed = await start({ ALLOWED_ORIGINS: 'https://docs.example, https://help.example', EMBED_MODEL: 'off' });
+  const from = async (origin) => {
+    const res = await fetch(`${listed}/llm/chat/completions`, { method: 'POST', headers: { origin, 'x-forwarded-for': `8.8.${origin.length}.1` }, body: JSON.stringify(ask('q')) });
+    await res.text();
+    return res.status;
+  };
+  assert.equal(await from('https://docs.example'), 200);
+  assert.equal(await from('https://help.example'), 200);
+  assert.equal(await from('https://evil.example'), 403);
+  assert.equal(await from('http://docs.example'), 403, 'the scheme counts');
+});
+
+test('visitors: without TRUST_PROXY, X-Forwarded-For is ignored', async () => {
+  const direct = await start({ TRUST_PROXY: '', LIMIT_LLM_PER_DAY: '1', EMBED_MODEL: 'off' });
+  const go = async (ip) => {
+    const res = await fetch(`${direct}/llm/chat/completions`, { method: 'POST', headers: { 'x-forwarded-for': ip }, body: JSON.stringify(ask('q')) });
+    await res.text();
+    return res.status;
+  };
+  assert.equal(await go('9.9.9.1'), 200);
+  assert.equal(await go('9.9.9.2'), 429, 'a made-up address does not get a fresh allowance');
+});
+
+// PHP has no queue of its own: its workers wait on the sidecar, which is tested as Node.
+test('embed: a full queue answers 503 instead of piling up', { skip: !withEmbed || port === 'php', timeout: 300_000 }, async () => {
+  const busy = await start({ LIMIT_EMBED_PER_MIN: '1000' });
+  // One long, uncached text each: slow enough to queue, quick enough to drain.
+  const long = (i) => [`question number ${i} `.repeat(60).slice(0, 1000)];
+  const statuses = await Promise.all(Array.from({ length: 40 }, async (_, i) => {
+    const res = await fetch(`${busy}/embed`, { method: 'POST', headers: { 'x-forwarded-for': `10.1.${i}.1` }, body: JSON.stringify({ texts: long(i) }) });
+    await res.arrayBuffer();
+    if (res.status === 503) assert.ok(Number(res.headers.get('retry-after')) >= 1);
+    return res.status;
+  }));
+  assert.ok(statuses.includes(503), `some were turned away: ${statuses.join(' ')}`);
+  assert.ok(statuses.includes(200), 'the queued ones were answered');
+});
