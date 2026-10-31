@@ -83,10 +83,11 @@ function bagOfWords(text: string): Float32Array {
 
 test('small talk by meaning: nearest example above the threshold, short messages only', async () => {
   let calls = 0;
-  const matcher = new SmallTalkMatcher(async (t) => (calls++, bagOfWords(t)), 0.9);
+  const matcher = new SmallTalkMatcher(async (ts) => (calls++, ts.map(bagOfWords)), 0.9);
   assert.equal(await matcher.match('something funny'), 'joke');
   const examples = calls;
   assert.equal(await matcher.match('install csp'), null);
+  assert.equal(examples, 2, 'the examples in one batch, then the message');
   assert.equal(calls, examples + 1, 'examples are embedded once');
   assert.equal(await matcher.nearest('a very long question that rambles on about thanks and jokes forever'), null);
 });
@@ -101,4 +102,14 @@ test('skin voice must be an object', () => {
   const manifest = JSON.parse(readFileSync(new URL('../skins/default/manifest.json', import.meta.url), 'utf8'));
   assert.deepEqual(validateManifest({ ...manifest, voice: { found: 'Yes!' } }), []);
   assert.ok(validateManifest({ ...manifest, voice: ['nope'] }).includes('voice must be an object of line sets'));
+});
+
+test('behaviour: a long wait on the model turns thinking into serious work', () => {
+  const thinking = step(step(initialState, 'open').state, 'ask').state;
+  assert.equal(thinking.mode, 'thinking');
+  const working = step(thinking, 'busy').state;
+  assert.equal(working.mode, 'working');
+  assert.equal(step(working, 'answer-start').state.mode, 'talking');
+  const downloading = step(thinking, 'download').state;
+  assert.equal(step(downloading, 'busy').state.mode, 'downloading', 'busy only applies while thinking');
 });

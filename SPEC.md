@@ -63,15 +63,24 @@ change it before changing behaviour.
   - **Embedding model: `Xenova/bge-small-en-v1.5`** (int8, 34 MB, MIT, CLS
     pooling, BGE query prefix). Chosen 2026-10-25: best retrieval of the three
     candidates, and browser vectors match Node's exactly.
+  - `--model bge-base-en-v1.5` (768 dims, 110 MB) ranks better: a right
+    section in the top 4 for 97% and 100% of the eval's questions, against
+    89% for bge-small. Three times the download and the time per question, so
+    it is opt-in, and best with `embedEndpoint` (below).
   - Vectors stored quantised (int8, base64) to keep the file small.
 - Browser: loads the index as a static file, embeds the query, and ranks by
-  0.7 × cosine + 0.3 × keyword (BM25-lite) score, which helps with names and
-  exact terms. Without vectors (keyword-only index, or download declined) it
+  cosine and keyword (BM25-lite) score combined: 0.8/0.2 for bge-small,
+  0.9/0.1 for bge-base. The keyword share helps with names and exact terms.
+  With `embedEndpoint` the site's server embeds the query instead (same code
+  path, `src/rag/embedding.ts`), so visitors download no model; if it fails or
+  rate-limits, that question falls back to keyword search. Without vectors (keyword-only index, or download declined) it
   ranks by keyword score alone.
-- **Relevance cutoff:** below `minScore` (default 0.45 with vectors, 0.3
-  keyword-only) nothing counts, and the answer is "I don't know that one". In
-  testing this alone rejected every off-topic question, so **every answer
-  path, including generated ones, sits behind it.**
+- **Relevance cutoff:** below `minScore` (default per model: 0.5 for
+  bge-small, 0.475 for bge-base; 0.3 keyword-only) nothing counts, and the answer is "I don't know that one". In
+  a labelled eval on two sites (54 real and 33 off-topic questions) it
+  rejected every off-topic question but one borderline case the docs do
+  touch on, so **every answer path, including generated ones, sits behind
+  it.** The weights and cutoff came from that eval (2026-10-31).
 - If no model is available or allowed, the answer is the best-matching
   snippets themselves, with links. That is still useful.
 
@@ -161,10 +170,14 @@ supported:
   returning text, a promise of text or an `AsyncIterable<string>`. The prompt
   carries the chat messages plus the raw question and sources. This covers any
   other API and the site's own backend and auth.
-- **`browser-generative`** (experimental, planned): a generative model in the
-  browser on WebGPU. Candidate: Gemma 3 1B, the only model of 1B or more that
-  loaded on a phone in testing (§11.5). Offered only after checking the
-  device's WebGPU limits, and only as an opt-in.
+- **`browser-generative`** (experimental, built): a generative model on the
+  visitor's device, in the model worker. Default Gemma 3 1B
+  (`onnx-community/gemma-3-1b-it-ONNX`), the only model of 1B or more that
+  loaded on a phone in testing (§11.5); `model` takes another ONNX model id.
+  WebGPU (q4f16, or q4 without shader-f16) when the device has a usable GPU,
+  otherwise WASM (q4), which is very slow. ~800 MB, behind the same download
+  prompt. Opt-in only; checking the device's WebGPU limits before offering it is
+  still to do.
 - **Built-in browser models** (to investigate, §11.8): where the browser
   provides an on-device model (e.g. Chrome's Prompt API), use it with no
   download from the site.
@@ -199,7 +212,8 @@ skin and sets `skin`.
   `drag` (held), `land` (dropped), `hide`, `appear`, `download` (model loading).
 - **Optional animations**, each with a fallback the widget plays when a skin
   lacks it: `wave` (→ `greet`), `unsure` (→ `confused`), `blush` (→ `happy`),
-  `laugh` (→ `happy`). Optional animations let new expressions arrive without
+  `laugh` (→ `happy`), `working` (→ `thinking`: a long wait on the model,
+  from 1.5 s), `nope` (→ `sorry`: a head shake when the docs have no answer). Optional animations let new expressions arrive without
   breaking existing skins.
 - **Skins:** the default mascot is drawn by us (generated from code into sprite
   sheets). Custom characters drop in with their own manifest. The skin format,

@@ -27,8 +27,13 @@ Rebuild the index whenever your docs change. The index is a static JSON file,
 so you can build it in CI and deploy it with the rest of the site.
 
 Building the index downloads a small embedding model (34 MB) once, so search
-understands meaning and not just matching words. Pass `--no-embed` for a
-keyword-only index that needs no download.
+understands meaning and not just matching words. Visitors download it too, to
+embed their questions, unless your server does that (`embedEndpoint`). Pass
+`--no-embed` for a keyword-only index that needs no download.
+
+`--model bge-base-en-v1.5` builds with a larger model (110 MB) that finds the
+right section more often. It suits sites that embed questions on their server,
+where its size costs visitors nothing.
 
 ## Using npm and a bundler
 

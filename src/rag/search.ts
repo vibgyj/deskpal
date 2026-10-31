@@ -1,3 +1,4 @@
+import { DEFAULT_EMBEDDING } from './embedding.ts';
 import { KeywordIndex } from './keyword.ts';
 import { dequantizeInt8, dot, normalize } from './quantize.ts';
 import type { DeskpalIndex, Embedder, Hit } from './types.ts';
@@ -10,10 +11,11 @@ export interface SearchOptions {
   vectorWeight: number;
 }
 
-export const defaultSearchOptions: SearchOptions = { topK: 4, minScore: 0.3, vectorWeight: 0.7 };
+/** The default model's tuning (see `DEFAULT_EMBEDDING`); other models bring their own. */
+export const defaultSearchOptions: SearchOptions = { topK: 4, minScore: 0.3, vectorWeight: DEFAULT_EMBEDDING.vectorWeight };
 
-/** Relevance cutoffs (SPEC §3): with vectors, off-topic questions scored ≤0.39 and real ones ≥0.59. */
-export const MIN_SCORE_VECTOR = 0.45;
+/** Relevance cutoffs (SPEC §3). With vectors it depends on the model: see `EmbedModel.minScore`. */
+export const MIN_SCORE_VECTOR = DEFAULT_EMBEDDING.minScore;
 export const MIN_SCORE_KEYWORD = 0.3;
 
 export class IndexModelMismatch extends Error {

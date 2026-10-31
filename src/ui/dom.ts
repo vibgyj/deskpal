@@ -1,4 +1,5 @@
-import { CSS } from './styles.ts';
+import type { DeskpalConfig } from '../core/config.ts';
+import { CSS, configCss } from './styles.ts';
 
 export interface WidgetDom {
   host: HTMLElement;
@@ -32,15 +33,18 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
  * stylesheet where supported, which strict CSPs allow; the <style> fallback
  * is for older browsers.
  */
-export function buildDom(name: string): WidgetDom {
-  const host = el('div', {}, { 'data-deskpal': '' });
+export function buildDom(config: Pick<DeskpalConfig, 'name' | 'theme' | 'fontSize' | 'accent'>): WidgetDom {
+  const { name } = config;
+  // An attribute only the widget uses: the host sits in the page, whose CSS may style `.retro`.
+  const host = el('div', {}, { 'data-deskpal': '', 'data-deskpal-theme': config.theme ?? 'modern' });
+  const css = CSS + configCss(config);
   const root = host.attachShadow({ mode: 'open' });
   if ('adoptedStyleSheets' in root && typeof CSSStyleSheet !== 'undefined' && 'replaceSync' in CSSStyleSheet.prototype) {
     const sheet = new CSSStyleSheet();
-    sheet.replaceSync(CSS);
+    sheet.replaceSync(css);
     root.adoptedStyleSheets = [sheet];
   } else {
-    root.append(el('style', { textContent: CSS }));
+    root.append(el('style', { textContent: css }));
   }
 
   const bubbleId = 'deskpal-bubble';

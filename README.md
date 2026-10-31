@@ -70,7 +70,7 @@ Open (SPEC §4, §11):
 
 1. **Mascot**: `skins/default` is a placeholder blob.
 2. **Multilingual answers**: the extractive model is English only.
-3. **More writers**: `gemini` and an experimental `browser-generative`, and
+3. **More writers**: `gemini`, and
    falling back to extractive answers when a writer fails.
 4. **Built-in browser models**: whether Chrome's Prompt API can be a writer.
 

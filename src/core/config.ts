@@ -1,6 +1,7 @@
 import type { GenerateFn } from '../adapters/custom.ts';
 
-export type AdapterName = 'browser' | 'openai-compatible' | 'anthropic' | 'custom' | 'none';
+export type AdapterName = 'browser' | 'browser-generative' | 'openai-compatible' | 'anthropic' | 'custom' | 'none';
+export type Theme = 'modern' | 'retro';
 export type Corner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
 export interface DeskpalConfig {
@@ -9,12 +10,18 @@ export interface DeskpalConfig {
   adapter: AdapterName;
   /** openai-compatible: base URL such as `http://localhost:11434/v1`. anthropic: the site's proxy for `/v1/messages`. */
   endpoint?: string;
-  /** openai-compatible and anthropic: model name sent to the endpoint. */
+  /** openai-compatible and anthropic: model name sent to the endpoint. browser-generative: a Hugging Face ONNX model id. */
   model?: string;
+  /** browser-generative with a custom `model`: its download size, quoted before downloading. Required for a custom model. */
+  modelSizeMB?: number;
+  /** browser-generative with a custom `model`: the quantisation to load, on every device (default `q4`). */
+  modelDtype?: string;
   /** custom: writes the answer (SPEC §4). init() only, since it is a function. */
   generate?: GenerateFn;
   /** openai-compatible: bearer token. Visible to visitors; use only with a proxy or local server. */
   apiKey?: string;
+  /** The site's server endpoint that embeds questions, so visitors download no embedding model (docs/models.md). */
+  embedEndpoint?: string;
   /** Base URL for self-hosted model files (`{modelHost}/{model id}/...`). Hugging Face when unset. */
   modelHost?: string;
   /** URL of deskpal-runtime.js. Defaults to the same folder as the widget script. */
@@ -34,10 +41,17 @@ export interface DeskpalConfig {
   /** Milliseconds before the tip appears. */
   tipDelay: number;
   position: Corner;
+  /** The bubble's look: `modern` (clean, rounded) or `retro` (ink outlines and hard shadows). */
+  theme: Theme;
+  /** Text size in the bubble, in CSS pixels. The theme's own size (15px modern, 13px retro) when unset. */
+  fontSize?: number;
+  /** Accent colour for links, buttons and the visitor's questions, as hex such as `#0a7d5a`. */
+  accent?: string;
   /** Pixel scale for the sprite. */
   scale: number;
-  topK: number;
-  /** Retrieval cutoff, 0–1. Defaults to 0.45 with vectors, 0.3 keyword-only. */
+  /** Doc sections per answer. 6 for the cloud writers, which read more at no cost to the visitor; 4 otherwise. */
+  topK?: number;
+  /** Retrieval cutoff, 0–1. Defaults to 0.5 with vectors, 0.3 keyword-only. */
   minScore?: number;
   /** browser: confidence below which the matching sections are shown instead of an extracted answer. */
   minAnswerScore: number;
@@ -55,18 +69,21 @@ export const defaults: DeskpalConfig = {
   smallTalk: true,
   tipDelay: 20_000,
   position: 'bottom-right',
+  theme: 'modern',
   scale: 3,
-  topK: 4,
   minAnswerScore: 0.1,
   sureAnswerScore: 0.5,
   worker: true,
   siteKey: '',
 };
 
-const ADAPTERS: AdapterName[] = ['browser', 'openai-compatible', 'anthropic', 'custom', 'none'];
+const ADAPTERS: AdapterName[] = ['browser', 'browser-generative', 'openai-compatible', 'anthropic', 'custom', 'none'];
 const CORNERS: Corner[] = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
-const STRING_KEYS = ['index', 'endpoint', 'model', 'apiKey', 'modelHost', 'runtimeUrl', 'skin', 'name', 'greeting', 'tip', 'siteKey'] as const;
-const NUMBER_KEYS = ['tipDelay', 'scale', 'topK', 'minScore', 'minAnswerScore', 'sureAnswerScore'] as const;
+const THEMES: Theme[] = ['modern', 'retro'];
+// Hex only: it goes into the stylesheet, and the text colour on it is worked out from it.
+const COLOUR = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const STRING_KEYS = ['index', 'endpoint', 'embedEndpoint', 'model', 'modelDtype', 'apiKey', 'modelHost', 'runtimeUrl', 'skin', 'name', 'greeting', 'tip', 'siteKey'] as const;
+const NUMBER_KEYS = ['tipDelay', 'modelSizeMB', 'fontSize', 'scale', 'topK', 'minScore', 'minAnswerScore', 'sureAnswerScore'] as const;
 const BOOLEAN_KEYS = ['smallTalk', 'worker'] as const;
 
 /**
@@ -99,6 +116,12 @@ export function sanitize(input: Record<string, unknown>): Partial<DeskpalConfig>
     } else if (key === 'position') {
       if (CORNERS.includes(raw as Corner)) out.position = raw as Corner;
       else console.warn(`deskpal: unknown position "${String(raw)}"`);
+    } else if (key === 'theme') {
+      if (THEMES.includes(raw as Theme)) out.theme = raw as Theme;
+      else console.warn(`deskpal: unknown theme "${String(raw)}"`);
+    } else if (key === 'accent') {
+      if (typeof raw === 'string' && COLOUR.test(raw.trim())) out.accent = raw.trim();
+      else console.warn(`deskpal: ignoring accent=${String(raw)} (not a hex colour such as #0a7d5a)`);
     } else if (key !== 'auto') {
       console.warn(`deskpal: unknown option "${key}"`);
     }

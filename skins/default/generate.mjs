@@ -86,6 +86,22 @@ const extras = {
   arrow: (n) => `<g fill="${ACCENT}"><rect x="27" y="${1 + n}" width="2" height="4"/><polygon points="25,${5 + n} 31,${5 + n} 28,${8 + n}"/></g>`,
   blush: (n) => [9, 23].map((x) => `<ellipse cx="${x}" cy="${22 + n * 0.5}" rx="2.5" ry="1.2" fill="${CHEEK}" opacity="0.85"/>`).join(''),
   haha: (n) => `<g fill="${ACCENT}"><rect x="${24 + n}" y="${4 - n}" width="1" height="3"/><rect x="${26 + n}" y="${4 - n}" width="1" height="3"/><rect x="${24 + n}" y="${5 - n}" width="3" height="1"/></g>`,
+  // Working very seriously: furrowed brow, tiny glasses, a laptop, steam.
+  brows: () => `<g stroke="${INK}" stroke-width="1.2"><line x1="10.5" y1="14" x2="14.5" y2="15.5"/><line x1="17.5" y1="15.5" x2="21.5" y2="14"/></g>`,
+  glasses: (n) => `<g fill="none" stroke="${INK}" stroke-width="0.75"><rect x="10.5" y="${15.5 - n}" width="5" height="4.5"/><rect x="17.5" y="${15.5 - n}" width="5" height="4.5"/><line x1="15.5" y1="${17 - n}" x2="17.5" y2="${17 - n}"/></g>` +
+    `<rect x="11.5" y="${16 - n}" width="1" height="1" fill="#ffffff" opacity="0.9"/>`,
+  laptop: () => `<rect x="8" y="26" width="16" height="5" fill="#c9cfdb" stroke="${INK}"/><rect x="15" y="27.5" width="2" height="2" fill="${ACCENT}"/>` +
+    `<rect x="5" y="31" width="22" height="1" fill="${INK}"/>`,
+  // Hands hammering the keys in turn, with key-clack ticks.
+  typing: (n) => [[9, n], [21, 1 - n]].map(([x, up]) => `<rect x="${x}" y="${up ? 23.5 : 25}" width="3" height="2" fill="${BODY}" stroke="${INK}" stroke-width="0.75"/>`).join('') +
+    `<g stroke="${ACCENT}" stroke-width="0.75">${n ? '<line x1="8" y1="22" x2="7" y2="21"/><line x1="10" y1="21.5" x2="10" y2="20.5"/>' : '<line x1="24" y1="22" x2="25" y2="21"/><line x1="22" y1="21.5" x2="22" y2="20.5"/>'}</g>`,
+  adjust: () => `<rect x="9" y="25" width="3" height="2" fill="${BODY}" stroke="${INK}" stroke-width="0.75"/><rect x="15.5" y="18" width="2" height="2.5" fill="${BODY}" stroke="${INK}" stroke-width="0.75"/>`,
+  // Puffs of steam rising off the head, growing and fading.
+  steam: (n) => [0, 1].map((i) => {
+    const k = (n + i * 2) % 4;
+    return `<circle cx="${(i ? 22 : 10) + (k % 2 ? 1 : -1) * (i ? 1 : -1)}" cy="${9 - k * 2}" r="${1 + k * 0.4}" fill="#9aa6bf" opacity="${0.85 - k * 0.18}"/>`;
+  }).join(''),
+  swish: (n) => `<g stroke="${ACCENT}"><line x1="${n ? 28 : 2}" y1="16" x2="${n ? 30 : 4}" y2="15"/><line x1="${n ? 28 : 2}" y1="20" x2="${n ? 30 : 4}" y2="21"/></g>`,
   bar: (n) => `<rect x="4" y="2" width="24" height="3" fill="none" stroke="${INK}" stroke-width="0.75"/><rect x="5" y="3" width="${(n / 3) * 22}" height="1" fill="${ACCENT}"/>`,
 };
 
@@ -141,7 +157,9 @@ const animations = {
   },
   sorry: {
     fps: 4, loop: false, still: 1,
-    poses: [{ eyes: 'sad', mouth: 'frown' }, { eyes: 'sad', mouth: 'frown', sy: 0.94, extra: [['drop', 0]] }, { eyes: 'sad', mouth: 'frown', sy: 0.94, extra: [['drop', 1]] }, { eyes: 'sad', mouth: 'frown', extra: [['drop', 2]] }],
+    // Two seconds: the tear falls, then the sad face lingers.
+    poses: [{ eyes: 'sad', mouth: 'frown' }, { eyes: 'sad', mouth: 'frown', sy: 0.94, extra: [['drop', 0]] }, { eyes: 'sad', mouth: 'frown', sy: 0.94, extra: [['drop', 1]] }, { eyes: 'sad', mouth: 'frown', extra: [['drop', 2]] },
+      ...Array(4).fill({ eyes: 'sad', mouth: 'frown' })],
   },
   pointing: {
     fps: 6, loop: false, still: 2,
@@ -177,6 +195,27 @@ const animations = {
     fps: 10, loop: false, still: 1,
     poses: [0, 1, 0, 1, 0, 1].map((n) => ({ dy: n ? -2 : 0, eyes: 'happy', mouth: 'open', extra: [['haha', n]] })),
   },
+  // A long wait on the model: hammering the keys, then a dignified push of the glasses.
+  working: {
+    fps: 8, loop: true, still: 0,
+    poses: [
+      ...[0, 1, 2, 3, 0, 1, 2, 3].map((n) => ({ eyes: 'half', mouth: 'flat', look: n % 2 ? 1 : 0, dy: n % 2 ? 0.5 : 0, extra: [['brows'], ['glasses', 0], ['laptop'], ['typing', n % 2], ['steam', n]] })),
+      ...[0, 1, 2, 3].map((n) => ({ eyes: 'half', mouth: 'wavy', dy: n % 2 ? 0.5 : 0, extra: [['brows'], ['glasses', 0], ['laptop'], ['typing', n % 2], ['steam', n], ['drop', n % 3]] })),
+      { eyes: 'half', mouth: 'flat', extra: [['brows'], ['glasses', 1], ['laptop'], ['adjust'], ['steam', 0]] },
+      { eyes: 'half', mouth: 'flat', extra: [['brows'], ['glasses', 0], ['laptop'], ['adjust'], ['steam', 1]] },
+      { eyes: 'open', mouth: 'flat', extra: [['brows'], ['glasses', 0], ['laptop'], ['typing', 0], ['steam', 2]] },
+      { eyes: 'open', mouth: 'flat', extra: [['brows'], ['glasses', 0], ['laptop'], ['typing', 0], ['steam', 3]] },
+    ],
+  },
+  // No answer in the docs: a firm shake of the head.
+  nope: {
+    fps: 10, loop: false, still: 1,
+    poses: [
+      ...[0, 1, 0, 1, 0, 1].map((n) => ({ look: n ? 2 : -2, sx: 0.96, mouth: 'flat', eyes: 'half', extra: [['swish', n]] })),
+      // Then holds a sad face for 1.2 s, so the shake doesn't read as a twitch.
+      ...Array(12).fill({ eyes: 'sad', mouth: 'frown' }),
+    ],
+  },
   download: {
     fps: 4, loop: true,
     poses: [0, 1, 2, 3].map((n) => ({ eyes: 'up', mouth: 'o', extra: [['arrow', n % 2], ['bar', n]] })),
@@ -186,10 +225,16 @@ const animations = {
 const parts = [];
 const manifestAnimations = {};
 let n = 0;
+// Identical poses share a cell, so holding a pose costs no sheet space.
+const drawn = new Map();
 for (const [name, a] of Object.entries(animations)) {
   const frames = a.poses.map((pose) => {
-    parts.push(frame(pose, n % COLS, Math.floor(n / COLS)));
-    return n++;
+    const key = JSON.stringify(pose);
+    if (!drawn.has(key)) {
+      parts.push(frame(pose, n % COLS, Math.floor(n / COLS)));
+      drawn.set(key, n++);
+    }
+    return drawn.get(key);
   });
   manifestAnimations[name] = {
     frames,

@@ -8,7 +8,8 @@ export type { ExtractiveAdapter, GenerativeAdapter, ModelAdapter } from './types
 
 /**
  * The writer (SPEC §4, tier 2), if one is configured. The default `browser`
- * adapter is extractive and comes from the lazily loaded runtime instead
+ * adapter is extractive, and `browser-generative` runs a writer on the device;
+ * both and comes from the lazily loaded runtime instead
  * (runtime-loader.ts); `none` answers from snippets. A misconfigured writer
  * warns and answers from snippets rather than breaking the widget.
  */

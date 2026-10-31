@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { initialState, loopFor, step, type BehaviourEvent, type State } from '../src/core/behaviour.ts';
 import { fromDataset, fromJson, resolveConfig } from '../src/core/config.ts';
 import { Store } from '../src/core/storage.ts';
+import { configCss } from '../src/ui/styles.ts';
 
 test('config layers: data attributes < JSON block < init options', (t) => {
   t.mock.method(console, 'warn', () => {});
@@ -73,7 +74,7 @@ test('behaviour: a question runs thinking → talking → pointing, back to list
   const { s, onces } = run(['open', 'ask', 'answer-start', 'answer-cited']);
   assert.equal(s.mode, 'listening');
   assert.deepEqual(onces.slice(1), [undefined, undefined, 'pointing']);
-  assert.equal(run(['open', 'ask', 'no-answer']).onces[2], 'sorry');
+  assert.equal(run(['open', 'ask', 'no-answer']).onces[2], 'nope');
 });
 
 test('behaviour: waiting on the visitor listens, then thinking resumes', () => {
@@ -101,4 +102,17 @@ test('every mode loops a required animation', () => {
   for (const m of ['hidden', 'idle', 'bored', 'asleep', 'dragging', 'listening', 'downloading', 'thinking', 'talking'] as const) {
     assert.ok(loopFor(m));
   }
+});
+
+test('look options: theme, font size and an accent that cannot inject CSS', (t) => {
+  t.mock.method(console, 'warn', () => {});
+  const ok = fromJson('{"theme":"retro","fontSize":16,"accent":"#0a7d5a"}');
+  assert.deepEqual(ok, { theme: 'retro', fontSize: 16, accent: '#0a7d5a' });
+  assert.equal(resolveConfig({}).theme, 'modern');
+  assert.deepEqual(fromJson('{"theme":"neon","accent":"red; } :host { display: none"}'), {});
+  // Hex only, so the text colour on it can be worked out.
+  for (const accent of ['rgb(10 125 90)', 'navy', '#12345']) assert.deepEqual(fromJson(JSON.stringify({ accent })), {});
+  assert.match(configCss(ok), /--dp-font-size: 16px; --dp-accent: #0a7d5a; --dp-on-accent: #ffffff;/);
+  assert.match(configCss({ accent: '#ffd23f' }), /--dp-on-accent: #0f1220/);
+  assert.equal(configCss({}), '');
 });

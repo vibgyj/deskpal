@@ -1,14 +1,18 @@
 // dist/deskpal-worker.js: the runtime in a module Worker (SPEC §4), so
 // inference never blocks the page and the character keeps animating. The
 // widget talks to it through src/adapters/worker-client.ts.
+import type { LocalGenerator } from '../adapters/browser-generative.ts';
 import type { ExtractiveAdapter } from '../adapters/types.ts';
 import type { Embedder } from '../rag/types.ts';
-import { configure, loadEmbedder, loadExtractive } from './index.ts';
+import { configure, loadEmbedder, loadExtractive, loadGenerator } from './index.ts';
 import type { WorkerRequest, WorkerResponse } from './protocol.ts';
 
 let embedder: Embedder | null = null;
 let extractive: ExtractiveAdapter | null = null;
-/** Inference can't be interrupted; the widget ignores results it no longer wants. */
+let generator: LocalGenerator | null = null;
+/** Generations in progress, by request id, so `stop` ends only its own. */
+const generations = new Map<number, AbortController>();
+/** Extraction can't be interrupted; the widget ignores results it no longer wants. Generation can (`stop`). */
 const never = new AbortController().signal;
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
@@ -33,6 +37,22 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
       }
       case 'extract':
         return post({ id: req.id, ok: true, result: await extractive!.extract(req.question, req.passages, never) });
+      case 'loadGenerator':
+        generator = await loadGenerator(req.model, progress);
+        return post({ id: req.id, ok: true, result: { device: generator.device, dtype: generator.dtype } });
+      case 'generate': {
+        const ctrl = new AbortController();
+        generations.set(req.id, ctrl);
+        try {
+          await generator!.run(req.messages, (piece) => post({ id: req.id, piece }), ctrl.signal);
+        } finally {
+          generations.delete(req.id);
+        }
+        return post({ id: req.id, ok: true });
+      }
+      case 'stop':
+        generations.get(req.target)?.abort();
+        return post({ id: req.id, ok: true });
     }
   } catch (err) {
     post({ id: req.id, ok: false, error: err instanceof Error ? err.message : String(err) });

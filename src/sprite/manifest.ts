@@ -58,6 +58,8 @@ export const OPTIONAL_ANIMATIONS: Record<string, (typeof REQUIRED_ANIMATIONS)[nu
   unsure: 'confused',
   blush: 'happy',
   laugh: 'happy',
+  working: 'thinking',
+  nope: 'sorry',
 };
 
 /** Returns a list of problems; empty when the manifest is usable. */

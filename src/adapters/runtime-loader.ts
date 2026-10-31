@@ -2,6 +2,7 @@ import type { EmbedModel } from '../rag/embedding.ts';
 import type { ExtractModel } from '../rag/extract.ts';
 import type { Embedder } from '../rag/types.ts';
 import type { FileProgress } from '../runtime/index.ts';
+import type { GenModel, LocalGenerator } from './browser-generative.ts';
 import type { ExtractiveAdapter } from './types.ts';
 import { startWorker } from './worker-client.ts';
 
@@ -15,6 +16,7 @@ export interface ModelRuntime {
   readonly where: 'worker' | 'main';
   loadEmbedder(model: EmbedModel, onProgress?: FileProgress): Promise<Embedder>;
   loadExtractive(model: ExtractModel, minScore: number, onProgress?: FileProgress): Promise<ExtractiveAdapter>;
+  loadGenerator(model: GenModel, onProgress?: FileProgress): Promise<LocalGenerator>;
 }
 
 let loading: Promise<Runtime> | null = null;
@@ -46,5 +48,5 @@ export async function startRuntime(runtimeUrl: string, options: { modelHost?: st
   }
   const rt = await loadRuntime(runtimeUrl);
   rt.configure({ modelHost });
-  return { where: 'main', loadEmbedder: rt.loadEmbedder, loadExtractive: rt.loadExtractive };
+  return { where: 'main', loadEmbedder: rt.loadEmbedder, loadExtractive: rt.loadExtractive, loadGenerator: rt.loadGenerator };
 }

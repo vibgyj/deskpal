@@ -36,6 +36,8 @@ export interface Embedder {
   readonly dim: number;
   /** Embeds a question, applying whatever query prefix the model needs. */
   embedQuery(question: string): Promise<Float32Array>;
+  /** Several at once, where that saves round trips (a server embedder). */
+  embedQueries?(questions: string[]): Promise<Float32Array[]>;
 }
 
 export interface Hit {

@@ -6,6 +6,8 @@ export interface Remembered {
   sound?: boolean;
   /** The visitor's answer to the one-time model download prompt. */
   download?: 'yes' | 'no';
+  /** The size quoted when they said yes: a bigger download asks again. */
+  downloadMB?: number;
 }
 
 /**
