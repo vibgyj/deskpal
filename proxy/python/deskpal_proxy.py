@@ -68,6 +68,8 @@ def config_from_env(env=os.environ):
         "openai": openai,
         "anthropic": anthropic,
         "embed_model": None if embed == "off" else embed,
+        # Embedding requests running or waiting; past this the reply is 503.
+        "embed_queue": int(n("EMBED_QUEUE", 20)),
         "allowed_origins": [s.strip() for s in env["ALLOWED_ORIGINS"].split(",")] if env.get("ALLOWED_ORIGINS") else None,
         "trust_proxy": env.get("TRUST_PROXY") == "1",
         "limits": {
@@ -83,7 +85,7 @@ def create_proxy(config=None):
     """The proxy as a WSGI app. Paths that aren't its routes get a 404."""
     config = config or config_from_env()
     limiter = Limiter(config["limits"])
-    embedder = Embedder(config["embed_model"]) if config["embed_model"] else None
+    embedder = Embedder(config["embed_model"], config.get("embed_queue", 20)) if config["embed_model"] else None
     streaming = set()
     streaming_lock = threading.Lock()
 
@@ -232,11 +234,12 @@ class Embedder:
     """The same ONNX file and tokenizer the widget uses (transformers.js, q8),
     run with onnxruntime, so vectors match the index."""
 
-    def __init__(self, name):
+    def __init__(self, name, max_queue=20):
         if name not in EMBED_MODELS:
             raise ValueError(f'deskpal proxy: unknown EMBED_MODEL "{name}"; choose {" or ".join(EMBED_MODELS)}')
         self.model = EMBED_MODELS[name]
         self.lock = threading.Lock()
+        self.max_queue = max_queue
         self.waiting = 0
         self.waiting_lock = threading.Lock()
         self.cache = OrderedDict()
@@ -266,7 +269,7 @@ class Embedder:
     def embed(self, texts):
         """Vectors for the texts, or None when too many requests are already waiting."""
         with self.waiting_lock:
-            if self.waiting >= 20:
+            if self.waiting >= self.max_queue:
                 return None
             self.waiting += 1
         try:

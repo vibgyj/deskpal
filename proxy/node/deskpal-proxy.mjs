@@ -12,6 +12,7 @@
 // or use `createProxy()` as a handler inside your own server.
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
+import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
 
 /** Models an index can be built with (`deskpal build-index --model`). */
 export const EMBED_MODELS = {
@@ -38,6 +39,8 @@ export function configFromEnv(env = process.env) {
       ? { key: env.ANTHROPIC_API_KEY, baseUrl: (env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/+$/, ''), model: env.CLAUDE_MODEL ?? 'claude-opus-5-5', maxTokens: n('CLAUDE_MAX_TOKENS', 1024) }
       : null,
     embedModel: env.EMBED_MODEL === 'off' ? null : (env.EMBED_MODEL ?? 'bge-small-en-v1.5'),
+    /** Embedding requests running or waiting; past this the reply is 503. */
+    embedQueue: n('EMBED_QUEUE', 20),
     allowedOrigins: env.ALLOWED_ORIGINS ? env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()) : null,
     trustProxy: env.TRUST_PROXY === '1',
     limits: {
@@ -55,7 +58,7 @@ export function configFromEnv(env = process.env) {
  */
 export function createProxy(config = configFromEnv()) {
   const limiter = new Limiter(config.limits);
-  const embedder = config.embedModel ? new Embedder(config.embedModel) : null;
+  const embedder = config.embedModel ? new Embedder(config.embedModel, config.embedQueue) : null;
   const streaming = new Set();
 
   return async function handle(req, res) {
@@ -154,10 +157,13 @@ function claudeRequest(cfg, body, headers) {
 
 /** The widget's own code path (transformers.js, q8 ONNX), so vectors match the index exactly. */
 class Embedder {
-  constructor(name) {
+  constructor(name, maxQueue = 20) {
     this.model = EMBED_MODELS[name];
+    this.maxQueue = maxQueue;
     if (!this.model) throw new Error(`deskpal proxy: unknown EMBED_MODEL "${name}"; choose ${Object.keys(EMBED_MODELS).join(' or ')}`);
-    this.extractor = null;
+    this.worker = null;
+    this.pending = new Map();
+    this.nextId = 0;
     this.queue = Promise.resolve();
     this.waiting = 0;
     this.cache = new Map();
@@ -165,7 +171,7 @@ class Embedder {
 
   /** Vectors for the texts, or null when too many requests are already waiting. */
   async embed(texts) {
-    if (this.waiting >= 20) return null;
+    if (this.waiting >= this.maxQueue) return null;
     this.waiting++;
     // One model call at a time: the CPU is the limit, and a queue keeps memory flat.
     const run = this.queue.then(() => this.run(texts));
@@ -178,20 +184,42 @@ class Embedder {
   }
 
   async run(texts) {
-    if (!this.extractor) {
-      const { pipeline } = await import('@huggingface/transformers');
-      this.extractor = pipeline('feature-extraction', this.model.id, { dtype: 'q8' });
-    }
-    const extractor = await this.extractor;
     const missing = [...new Set(texts.filter((t) => !this.cache.has(t)))];
     if (missing.length) {
-      const out = await extractor(missing.map((t) => QUERY_PREFIX + t), { pooling: 'cls', normalize: true });
-      const dim = out.dims.at(-1);
-      missing.forEach((t, i) => this.cache.set(t, Array.from(out.data.slice(i * dim, (i + 1) * dim), round)));
+      const { dim, data } = await this.infer(missing);
+      missing.forEach((t, i) => this.cache.set(t, Array.from(data.slice(i * dim, (i + 1) * dim), round)));
       // Small LRU: common questions and the widget's small-talk examples stay warm.
       while (this.cache.size > 2000) this.cache.delete(this.cache.keys().next().value);
     }
     return texts.map((t) => this.cache.get(t));
+  }
+
+  /** One call to the model in the worker, which starts (and downloads the model) on first use. */
+  infer(texts) {
+    if (!this.worker) {
+      const worker = new Worker(new URL(import.meta.url), { workerData: { deskpalEmbedModel: this.model.id } });
+      worker.unref();
+      worker.on('message', ({ id, error, dim, data }) => {
+        const p = this.pending.get(id);
+        this.pending.delete(id);
+        if (error) p?.reject(new Error(error));
+        else p?.resolve({ dim, data });
+      });
+      // A crashed worker fails what it held; the next request starts a new one.
+      const fail = (err) => {
+        if (this.worker === worker) this.worker = null;
+        for (const p of this.pending.values()) p.reject(err instanceof Error ? err : new Error(`embedding worker exited (${err})`));
+        this.pending.clear();
+      };
+      worker.on('error', fail);
+      worker.on('exit', fail);
+      this.worker = worker;
+    }
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ id, texts });
+    });
   }
 }
 
@@ -276,6 +304,21 @@ async function readJson(req) {
   }
 }
 
+// The embedding model runs in a worker thread (this same file): inference
+// would otherwise block the event loop, and with it every other request.
+if (!isMainThread && workerData?.deskpalEmbedModel) {
+  const { pipeline } = await import('@huggingface/transformers');
+  const extractor = pipeline('feature-extraction', workerData.deskpalEmbedModel, { dtype: 'q8' });
+  parentPort.on('message', async ({ id, texts }) => {
+    try {
+      const out = await (await extractor)(texts.map((t) => QUERY_PREFIX + t), { pooling: 'cls', normalize: true });
+      parentPort.postMessage({ id, dim: out.dims.at(-1), data: out.data });
+    } catch (err) {
+      parentPort.postMessage({ id, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+}
+
 function send(res, status, json, headers = {}) {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }).end(JSON.stringify(json));
 }
@@ -285,7 +328,7 @@ function tooMany(res, wait) {
 }
 
 // Run alone: PORT (default 8788), routes under any path.
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (isMainThread && import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const config = configFromEnv();
   const handle = createProxy(config);
   const port = Number(process.env.PORT) || 8788;

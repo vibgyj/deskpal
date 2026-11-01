@@ -34,11 +34,15 @@
     "spike": "npm run build && node dist/cli.mjs build-index demo/docs -o demo/deskpal-index.json --base-url /docs/ --md-ext \"\" && node scripts/build-spike.mjs && node scripts/serve.mjs",
     "spike:vectors": "node scripts/spike-vectors.ts",
     "demo": "npm run build && node dist/cli.mjs build-index demo/docs -o demo/deskpal-index.json --base-url /docs/ --md-ext \"\" && node scripts/serve.mjs",
-    "test:proxy": "node scripts/test-proxy.mjs"
+    "test:proxy": "node scripts/test-proxy.mjs",
+    "test:browser": "npm run build && node --test \"test/e2e/*.e2e.ts\""
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "21.0.4",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
+    "happy-dom": "21.0.4",
+    "playwright": "1.64.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {

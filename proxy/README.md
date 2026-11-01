@@ -45,7 +45,7 @@ A widget set up for all three:
 - **Embedding:** up to 32 texts per request, each cut to 1,000 characters. The reply is `{"model": "<id>", "vectors": [[…], …]}`.
   - Node and Python run the same ONNX file and tokenizer as the widget, so vectors match the index. The shared test checks a cosine above 0.999.
   - Common questions are cached.
-  - One embedding runs at a time; once 20 are waiting, the reply is 503.
+  - One embedding runs at a time, off the request path (Node uses a worker thread), so answers keep streaming meanwhile. Once 20 requests are running or waiting (`EMBED_QUEUE`), the reply is 503.
 - **Limits, per visitor:**
 
   | Limit | Default | Setting |
@@ -80,6 +80,7 @@ All three read the same environment variables.
 | `CLAUDE_MODEL` | `claude-opus-5-5` | set the widget's `model` the same |
 | `CLAUDE_MAX_TOKENS` | 1024 | caps what the widget asks for |
 | `EMBED_MODEL` | `bge-small-en-v1.5` | Node and Python: the index's model, or `off` |
+| `EMBED_QUEUE` | 20 | Node and Python: embedding requests running or waiting before 503 |
 | `EMBED_URL` | | PHP: the Node or Python proxy's `/embed`, which turns on `…/embed` |
 | `LIMIT_EMBED_PER_MIN` | 20 | |
 | `LIMIT_LLM_PER_MIN` | 4 | |

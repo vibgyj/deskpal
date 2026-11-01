@@ -206,3 +206,70 @@ test('embed: vectors match the widget\'s own (transformers.js), and are limited'
   for (let i = 0; i < 4; i++) assert.equal((await fetch(`${base}/embed`, { method: 'POST', headers: { 'x-forwarded-for': '6.6.6.6' }, body: '{"texts":["hi"]}' })).status, 200);
   assert.equal((await fetch(`${base}/embed`, { method: 'POST', headers: { 'x-forwarded-for': '6.6.6.6' }, body: '{"texts":["hi"]}' })).status, 429);
 });
+
+test('claude: the full Messages path works too', async () => {
+  const res = await fetch(`${base}/claude/v1/messages`, { method: 'POST', headers: { 'x-forwarded-for': '2.2.2.9' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }) });
+  assert.equal(res.status, 200);
+  await res.text();
+  assert.equal(seen.at(-1).path, '/v1/messages');
+});
+
+test('limits: a daily cap per visitor', async () => {
+  const daily = await start({ LIMIT_LLM_PER_DAY: '2', EMBED_MODEL: 'off' });
+  const go = async (ip) => {
+    const res = await fetch(`${daily}/llm/chat/completions`, { method: 'POST', headers: { 'x-forwarded-for': ip }, body: JSON.stringify(ask('q')) });
+    await res.text();
+    return res.status;
+  };
+  assert.equal(await go('7.7.7.1'), 200);
+  assert.equal(await go('7.7.7.1'), 200);
+  assert.equal(await go('7.7.7.1'), 429);
+  assert.equal(await go('7.7.7.2'), 200, 'other visitors keep their own allowance');
+});
+
+test('origins: ALLOWED_ORIGINS lists the sites whose pages may call it', async () => {
+  const listed = await start({ ALLOWED_ORIGINS: 'https://docs.example, https://help.example', EMBED_MODEL: 'off' });
+  const from = async (origin) => {
+    const res = await fetch(`${listed}/llm/chat/completions`, { method: 'POST', headers: { origin, 'x-forwarded-for': `8.8.${origin.length}.1` }, body: JSON.stringify(ask('q')) });
+    await res.text();
+    return res.status;
+  };
+  assert.equal(await from('https://docs.example'), 200);
+  assert.equal(await from('https://help.example'), 200);
+  assert.equal(await from('https://evil.example'), 403);
+  assert.equal(await from('http://docs.example'), 403, 'the scheme counts');
+});
+
+test('visitors: without TRUST_PROXY, X-Forwarded-For is ignored', async () => {
+  const direct = await start({ TRUST_PROXY: '', LIMIT_LLM_PER_DAY: '1', EMBED_MODEL: 'off' });
+  const go = async (ip) => {
+    const res = await fetch(`${direct}/llm/chat/completions`, { method: 'POST', headers: { 'x-forwarded-for': ip }, body: JSON.stringify(ask('q')) });
+    await res.text();
+    return res.status;
+  };
+  assert.equal(await go('9.9.9.1'), 200);
+  assert.equal(await go('9.9.9.2'), 429, 'a made-up address does not get a fresh allowance');
+});
+
+// PHP has no queue of its own: its workers wait on the sidecar, which is tested as Node.
+test('embed: while one runs, a full queue answers 503 and answers still stream', { skip: !withEmbed || port === 'php', timeout: 300_000 }, async () => {
+  const busy = await start({ LIMIT_EMBED_PER_MIN: '1000', EMBED_QUEUE: '1' });
+  const embed = (ip, texts) => fetch(`${busy}/embed`, { method: 'POST', headers: { 'x-forwarded-for': ip }, body: JSON.stringify({ texts }) });
+  await (await embed('10.1.0.1', ['warm up'])).arrayBuffer();
+  // The largest batch allowed keeps the model busy for a few seconds even on fast CPUs.
+  const heavy = embed('10.1.0.2', Array.from({ length: 32 }, (_, j) => `question ${j} `.repeat(100).slice(0, 1000)));
+  await new Promise((r) => setTimeout(r, 100));
+
+  const started = Date.now();
+  const refused = await embed('10.1.0.3', ['one more']);
+  assert.equal(refused.status, 503);
+  assert.ok(Number(refused.headers.get('retry-after')) >= 1);
+  const answer = await fetch(`${busy}/llm/chat/completions`, { method: 'POST', headers: { 'x-forwarded-for': '10.1.0.4' }, body: JSON.stringify(ask('q')) });
+  assert.equal(answer.status, 200);
+  assert.match(await answer.text(), /\[DONE\]/);
+  assert.ok(Date.now() - started < 2000, `other requests waited ${Date.now() - started} ms for the model`);
+
+  const done = await heavy;
+  assert.equal(done.status, 200, 'the running one still finishes');
+  assert.equal((await done.json()).vectors.length, 32);
+});
