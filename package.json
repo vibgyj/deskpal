@@ -8,14 +8,20 @@
   "module": "./dist/deskpal.mjs",
   "exports": {
     ".": "./dist/deskpal.mjs",
-    "./iife": "./dist/deskpal.js"
+    "./iife": "./dist/deskpal.js",
+    "./proxy": "./proxy/node/deskpal-proxy.mjs"
   },
   "bin": {
     "deskpal": "./dist/cli.mjs"
   },
   "files": [
     "dist",
-    "skins"
+    "skins",
+    "proxy/node",
+    "proxy/python/deskpal_proxy.py",
+    "proxy/python/requirements.txt",
+    "proxy/php",
+    "proxy/README.md"
   ],
   "engines": {
     "node": ">=22.18"
@@ -27,7 +33,8 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "spike": "npm run build && node dist/cli.mjs build-index demo/docs -o demo/deskpal-index.json --base-url /docs/ --md-ext \"\" && node scripts/build-spike.mjs && node scripts/serve.mjs",
     "spike:vectors": "node scripts/spike-vectors.ts",
-    "demo": "npm run build && node dist/cli.mjs build-index demo/docs -o demo/deskpal-index.json --base-url /docs/ --md-ext \"\" && node scripts/serve.mjs"
+    "demo": "npm run build && node dist/cli.mjs build-index demo/docs -o demo/deskpal-index.json --base-url /docs/ --md-ext \"\" && node scripts/serve.mjs",
+    "test:proxy": "node scripts/test-proxy.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

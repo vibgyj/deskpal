@@ -24,17 +24,23 @@ which then run in a Web Worker. Say no and it shows the matching doc sections
 instead.
 To have a model write answers instead, use `adapter: "openai-compatible"` (Ollama,
 llama.cpp, most clouds), `"anthropic"` (Claude, through your proxy) or
-`"custom"` (your own function); see `demo/docs/models.md`.
+`"custom"` (your own function); see `demo/docs/models.md`. The reference proxy
+in `proxy/` (Node, Python and PHP) keeps the API key on your server, embeds
+questions there so visitors download nothing, and rate-limits visitors.
 
 ## Development
 
 ```sh
 npm install
 npm test          # unit tests (node --test, no build needed)
+npm run test:proxy  # the proxy in Node, Python and PHP, against a fake upstream
 npm run typecheck
 npm run build     # dist/: deskpal.js (IIFE), deskpal.mjs (ESM), deskpal-runtime.js, deskpal-worker.js + ort/, cli.mjs
 npm run demo      # builds, indexes demo/docs and serves http://localhost:5173
 ```
+
+GitHub Actions runs the type-check, unit tests and build, and the proxy test
+for each port with the embedding check, on every pull request and push to main.
 
 The demo server also prints its address on your network, for testing from a
 phone. Browsers only enable WebGPU and the model cache over HTTPS or
